@@ -1,1 +1,2 @@
 pytest>=8
+ortools>=9.11,<10
