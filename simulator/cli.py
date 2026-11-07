@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--anomaly-rate", type=float, default=d.anomaly_rate)
     p.add_argument("--n-incidents", type=int, default=d.n_incidents)
     p.add_argument("--n-disruptions", type=int, default=d.n_disruptions)
+    p.add_argument("--trip-delay-rate", type=float, default=d.trip_delay_rate)
+    p.add_argument("--scan-lag-rate", type=float, default=d.scan_lag_rate)
     a = p.parse_args(argv)
 
     sc = generate_scenario(
@@ -30,6 +32,8 @@ def main(argv: list[str] | None = None) -> None:
         anomaly_rate=a.anomaly_rate,
         n_incidents=a.n_incidents,
         n_disruptions=a.n_disruptions,
+        trip_delay_rate=a.trip_delay_rate,
+        scan_lag_rate=a.scan_lag_rate,
     )
     print(json.dumps(write_all(sc, a.out), indent=2))
     print(f"wrote {a.out}")

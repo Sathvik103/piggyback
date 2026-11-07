@@ -1,7 +1,8 @@
 """Seeded scenario generator.
 
 `generate_scenario(seed=...)` builds hubs -> lanes -> corridors -> trips/legs ->
-shipments (booked onto legs) -> scan histories -> strandings -> disruptions.
+shipments (booked onto legs) -> trip delays -> scan histories -> strandings ->
+disruptions -> scan upload lag.
 Everything comes from one `random.Random(seed)`, so a seed and a config always
 reproduce the same scenario byte for byte.
 """
@@ -26,6 +27,7 @@ from .models import (
     ANOMALY_HELD,
     ANOMALY_LOST_SCAN,
     ANOMALY_MISROUTE,
+    ANOMALY_MISSED_CONNECTION,
     ANOMALY_MISSORT,
     DISRUPTION_HUB_CLOSURE,
     DISRUPTION_LANE_DELAY,
@@ -45,6 +47,7 @@ from .models import (
     ScenarioConfig,
     Shipment,
     Trip,
+    TripDelay,
     TripLeg,
     TruthRecord,
 )
@@ -57,6 +60,9 @@ PRIORITY_WEIGHTS = (0.2, 0.55, 0.25)
 # deadline = created + fixed + slack * planned transit time
 DEADLINE_RULE = {"EXPRESS": (2.0, 1.15), "STANDARD": (4.0, 1.4), "ECONOMY": (8.0, 1.8)}
 HOLD_REASONS = ("DOCS_MISSING", "DAMAGED_PACKAGING", "ADDRESS_QUERY", "CUSTOMS_CHECK")
+TRIP_DELAY_RANGE_H = (0.5, 4.0)
+SCAN_LAG_RANGE_H = (1.0, 6.0)      # a lagged scan arrives this late
+SCAN_LAG_NORMAL_H = 0.25           # everyone else arrives within this
 
 
 def _r(x: float, nd: int = 2) -> float:
@@ -259,12 +265,34 @@ RawScan = tuple[float, str, str, Optional[str], Optional[str]]
 
 
 def planned_scans(s: Shipment, path: list[TripLeg]) -> list[RawScan]:
-    scans: list[RawScan] = [(s.created_h, s.origin_hub, SCAN_INDUCTED, None, None)]
-    for board, alight in rides(path):
-        scans.append((board.departure_h, board.from_hub, SCAN_LOADED, board.leg_id, None))
-        scans.append((alight.arrival_h, alight.to_hub, SCAN_UNLOADED, alight.leg_id, None))
-    scans.append((_r(path[-1].arrival_h + DELIVERY_H), s.dest_hub, SCAN_DELIVERED, None, None))
+    """The scans the booked itinerary should produce, at timetable times."""
+    scans, _ = actual_scans(s, path, {})
     return scans
+
+
+def actual_scans(s: Shipment, path: list[TripLeg], delay: dict[str, float],
+                 ) -> tuple[list[RawScan], Optional[tuple[str, float]]]:
+    """Scans with each trip shifted by its delay. Stops at the first missed connection
+    and returns (hub, arrival time) of that miss as the second value."""
+    scans: list[RawScan] = [(s.created_h, s.origin_hub, SCAN_INDUCTED, None, None)]
+    rs = rides(path)
+    arr = 0.0
+    for i, (board, alight) in enumerate(rs):
+        d = delay.get(board.trip_id, 0.0)
+        arr = _r(alight.arrival_h + d)
+        scans.append((_r(board.departure_h + d), board.from_hub, SCAN_LOADED, board.leg_id, None))
+        scans.append((arr, alight.to_hub, SCAN_UNLOADED, alight.leg_id, None))
+        if i + 1 < len(rs):
+            nxt = rs[i + 1][0]
+            if arr + MIN_CONNECTION_H > nxt.departure_h + delay.get(nxt.trip_id, 0.0) + 1e-9:
+                return scans, (alight.to_hub, arr)
+    scans.append((_r(arr + DELIVERY_H), s.dest_hub, SCAN_DELIVERED, None, None))
+    return scans, None
+
+
+def build_trip_delays(rng: random.Random, cfg: ScenarioConfig, trips: list[Trip]) -> list[TripDelay]:
+    return [TripDelay(t.trip_id, _r(rng.uniform(*TRIP_DELAY_RANGE_H)))
+            for t in trips if rng.random() < cfg.trip_delay_rate]
 
 
 def build_shipments(rng: random.Random, cfg: ScenarioConfig, hubs: list[Hub], router: Router,
@@ -314,21 +342,24 @@ def _strand_held(rng, s, scans, now):
     return kept, TruthRecord(s.shipment_id, ANOMALY_HELD, held_at, hub)
 
 
-def _strand_misroute(rng, s, scans, now, path, legs_from_hub):
+def _strand_misroute(rng, s, scans, now, path, legs_from_hub, delay):
     planned_hubs = {s.origin_hub} | {l.to_hub for l in path}
-    idx =[k for k, sc in enumerate(scans) if sc[2] == SCAN_LOADED and sc[0] < now - 1.0]
+    idx = [k for k, sc in enumerate(scans) if sc[2] == SCAN_LOADED and sc[0] < now - 1.0]
     rng.shuffle(idx)
     for k in idx:
         ts, hub = scans[k][0], scans[k][1]
         earliest = max(ts - 2.0, scans[k - 1][0] + 0.5)  # after the parcel reached this hub
-        wrong = [l for l in legs_from_hub.get(hub, [])
-                 if earliest <= l.departure_h <= ts + 3.0 and l.to_hub not in planned_hubs
-                 and l.arrival_h < now]
+        wrong = []
+        for l in legs_from_hub.get(hub, []):
+            d = delay.get(l.trip_id, 0.0)
+            dep, arr = _r(l.departure_h + d), _r(l.arrival_h + d)
+            if earliest <= dep <= ts + 3.0 and l.to_hub not in planned_hubs and arr < now:
+                wrong.append((l, dep, arr))
         if wrong:
-            leg = rng.choice(wrong)
-            kept = scans[:k] + [(leg.departure_h, hub, SCAN_LOADED, leg.leg_id, None),
-                                (leg.arrival_h, leg.to_hub, SCAN_UNLOADED, leg.leg_id, None)]
-            return kept, TruthRecord(s.shipment_id, ANOMALY_MISROUTE, leg.arrival_h, leg.to_hub)
+            leg, dep, arr = rng.choice(wrong)
+            kept = scans[:k] + [(dep, hub, SCAN_LOADED, leg.leg_id, None),
+                                (arr, leg.to_hub, SCAN_UNLOADED, leg.leg_id, None)]
+            return kept, TruthRecord(s.shipment_id, ANOMALY_MISROUTE, arr, leg.to_hub)
     return None
 
 
@@ -345,13 +376,24 @@ def _strand_lost_scan(rng, s, scans, now):
 
 def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Shipment],
                      paths: dict[str, list[TripLeg]], legs: list[TripLeg], hubs: list[Hub],
+                     trip_delays: list[TripDelay],
                      ) -> tuple[dict[str, list[RawScan]], list[TruthRecord]]:
     now = cfg.now_h
-    all_scans = {s.shipment_id: planned_scans(s, paths[s.shipment_id]) for s in shipments}
+    delay = {d.trip_id: d.delay_h for d in trip_delays}
     by_id = {s.shipment_id: s for s in shipments}
     legs_from_hub: dict[str, list[TripLeg]] = {}
     for l in legs:
         legs_from_hub.setdefault(l.from_hub, []).append(l)
+
+    # Late trips strand whoever had a tight connection after them.
+    all_scans: dict[str, list[RawScan]] = {}
+    truth: list[TruthRecord] = []
+    stranded: set[str] = set()
+    for s in shipments:
+        all_scans[s.shipment_id], miss = actual_scans(s, paths[s.shipment_id], delay)
+        if miss is not None and miss[1] <= now:
+            truth.append(TruthRecord(s.shipment_id, ANOMALY_MISSED_CONNECTION, miss[1], miss[0]))
+            stranded.add(s.shipment_id)
 
     # Split the anomaly budget evenly over the three individual types, and draw each
     # type only from shipments whose history so far allows it (e.g. a misroute needs
@@ -363,8 +405,6 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
     rng.shuffle(kinds)
     pool = in_flight[:]
     rng.shuffle(pool)
-    truth: list[TruthRecord] = []
-    stranded: set[str] = set()
 
     def strand_one(kind: str) -> bool:
         for s in pool:
@@ -372,7 +412,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
                 continue
             scans = all_scans[s.shipment_id]
             if kind == ANOMALY_MISROUTE:
-                result = _strand_misroute(rng, s, scans, now, paths[s.shipment_id], legs_from_hub)
+                result = _strand_misroute(rng, s, scans, now, paths[s.shipment_id], legs_from_hub, delay)
             elif kind == ANOMALY_LOST_SCAN:
                 result = _strand_lost_scan(rng, s, scans, now)
             else:
@@ -387,14 +427,20 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
     for kind in kinds:
         strand_one(kind) or strand_one(ANOMALY_HELD)
 
-    # MISSORT bursts: every parcel transferring through the hub in the window halts
-    # there. Each burst is anchored on a real transfer unload so it is never empty.
-    transfers = []  # (ts, hub) of unloads followed by a reload at the same hub
+    # MISSORT bursts: parcels transferring through the hub in the window are sorted
+    # into the wrong bay and miss their next leg. Only parcels whose next leg has
+    # already left by `now` are stranded; the rest can still be found in time, so
+    # they stay healthy. Each burst is anchored on such a transfer so it is never empty.
+    def misses_by_now(scans, k):
+        return (k + 1 < len(scans) and scans[k][2] == SCAN_UNLOADED
+                and scans[k + 1][2] == SCAN_LOADED and scans[k + 1][0] <= now)
+
+    transfers = []  # (ts, hub) of transfer unloads whose next load is before now
     for sid, scans in all_scans.items():
         if sid in stranded:
             continue
-        for k, sc in enumerate(scans[:-1]):
-            if sc[2] == SCAN_UNLOADED and scans[k + 1][2] == SCAN_LOADED and now - 14.0 <= sc[0] <= now - 3.0:
+        for k, sc in enumerate(scans):
+            if misses_by_now(scans, k) and now - 14.0 <= sc[0] <= now - 3.0:
                 transfers.append((sc[0], sc[1]))
     transfers.sort()
     used_hubs: set[str] = set()
@@ -411,8 +457,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
             if sid in stranded:
                 continue
             for k, sc in enumerate(scans):
-                if (sc[2] == SCAN_UNLOADED and sc[1] == hub and start <= sc[0] <= end
-                        and sc[1] != by_id[sid].dest_hub):
+                if misses_by_now(scans, k) and sc[1] == hub and start <= sc[0] <= end:
                     all_scans[sid] = scans[:k + 1]
                     truth.append(TruthRecord(sid, ANOMALY_MISSORT, sc[0], hub, inc_id))
                     stranded.add(sid)
@@ -456,8 +501,9 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
     cfg = replace(ScenarioConfig(), seed=seed, **overrides)
     if not 0.0 <= cfg.capacity_tightness <= 0.99:
         raise ValueError("capacity_tightness must be in [0, 0.99]")
-    if not 0.0 <= cfg.anomaly_rate <= 1.0:
-        raise ValueError("anomaly_rate must be in [0, 1]")
+    for name in ("anomaly_rate", "trip_delay_rate", "scan_lag_rate"):
+        if not 0.0 <= getattr(cfg, name) <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1]")
     if not 0.0 < cfg.now_h < cfg.horizon_h:
         raise ValueError("now_h must be inside the horizon")
 
@@ -467,13 +513,25 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
     corridors = build_corridors(rng, hubs, lanes)
     trips, legs = build_trips(rng, cfg, corridors, lanes)
     shipments, paths = build_shipments(rng, cfg, hubs, Router(legs))
-    raw, truth = apply_strandings(rng, cfg, shipments, paths, legs, hubs)
+    trip_delays = build_trip_delays(rng, cfg, trips)
+    raw, truth = apply_strandings(rng, cfg, shipments, paths, legs, hubs, trip_delays)
     disruptions = build_disruptions(rng, cfg, hubs, lanes, trips)
 
+    # Upload lag: most scans land within minutes, a few hours later. Only scans that
+    # have reached the system by `now` are visible.
     scans: list[ScanEvent] = []
     for s in shipments:
         for ts, hub, kind, leg_id, note in raw[s.shipment_id]:
-            if ts <= cfg.now_h:
-                scans.append(ScanEvent(f"E{len(scans) + 1:06d}", s.shipment_id, ts, hub, kind, leg_id, note))
+            if ts > cfg.now_h:
+                continue
+            if rng.random() < cfg.scan_lag_rate:
+                lag = rng.uniform(*SCAN_LAG_RANGE_H)
+            else:
+                lag = rng.uniform(0.0, SCAN_LAG_NORMAL_H)
+            recorded = _r(ts + lag)
+            if recorded <= cfg.now_h:
+                scans.append(ScanEvent(f"E{len(scans) + 1:06d}", s.shipment_id, ts, recorded,
+                                       hub, kind, leg_id, note))
 
-    return Scenario(cfg, hubs, lanes, corridors, trips, legs, shipments, scans, disruptions, truth)
+    return Scenario(cfg, hubs, lanes, corridors, trips, legs, shipments, scans, disruptions,
+                    truth, trip_delays)

@@ -85,10 +85,12 @@ CREATE TABLE IF NOT EXISTS scan_events (
     scan_id     text PRIMARY KEY,
     shipment_id text NOT NULL REFERENCES shipments,
     ts_h        double precision NOT NULL,
+    recorded_h  double precision NOT NULL,
     hub_id      text NOT NULL REFERENCES hubs,
     event_type  text NOT NULL CHECK (event_type IN ('INDUCTED', 'LOADED', 'UNLOADED', 'HELD', 'DELIVERED')),
     leg_id      text REFERENCES trip_legs,
-    note        text
+    note        text,
+    CHECK (recorded_h >= ts_h)
 );
 CREATE INDEX IF NOT EXISTS scan_events_shipment_ts ON scan_events (shipment_id, ts_h);
 
@@ -104,11 +106,17 @@ CREATE TABLE IF NOT EXISTS disruptions (
     CHECK (end_h > start_h)
 );
 
--- Ground truth for scoring detection. Detection code must never read this table.
+-- Ground truth for scoring detection. Detection code must never read the sim_* tables.
 CREATE TABLE IF NOT EXISTS sim_truth (
     shipment_id   text PRIMARY KEY REFERENCES shipments,
-    anomaly_type  text NOT NULL CHECK (anomaly_type IN ('MISROUTE', 'LOST_SCAN', 'HELD', 'MISSORT')),
+    anomaly_type  text NOT NULL CHECK (anomaly_type IN
+                      ('MISROUTE', 'LOST_SCAN', 'HELD', 'MISSORT', 'MISSED_CONNECTION')),
     stranded_at_h double precision NOT NULL,
     true_hub_id   text NOT NULL REFERENCES hubs,
     incident_id   text
+);
+
+CREATE TABLE IF NOT EXISTS sim_trip_delays (
+    trip_id text PRIMARY KEY REFERENCES trips,
+    delay_h double precision NOT NULL CHECK (delay_h > 0)
 );

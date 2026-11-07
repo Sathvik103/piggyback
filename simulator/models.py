@@ -24,7 +24,9 @@ ANOMALY_MISROUTE = "MISROUTE"   # loaded onto the wrong trip, now at an off-plan
 ANOMALY_LOST_SCAN = "LOST_SCAN"  # physically moved on, but scans stopped
 ANOMALY_HELD = "HELD"           # held at a hub and never released
 ANOMALY_MISSORT = "MISSORT"     # caught in a burst incident at one hub
-ANOMALY_TYPES = (ANOMALY_MISROUTE, ANOMALY_LOST_SCAN, ANOMALY_HELD, ANOMALY_MISSORT)
+ANOMALY_MISSED_CONNECTION = "MISSED_CONNECTION"  # a late trip arrived after the next leg left
+ANOMALY_TYPES = (ANOMALY_MISROUTE, ANOMALY_LOST_SCAN, ANOMALY_HELD, ANOMALY_MISSORT,
+                 ANOMALY_MISSED_CONNECTION)
 
 DISRUPTION_TRIP_BREAKDOWN = "TRIP_BREAKDOWN"
 DISRUPTION_HUB_CLOSURE = "HUB_CLOSURE"
@@ -38,7 +40,9 @@ PRIORITIES = ("EXPRESS", "STANDARD", "ECONOMY")
 class ScenarioConfig:
     seed: int = 42
     n_shipments: int = 3000
-    horizon_h: float = 72.0
+    # Trips are scheduled up to here. It runs well past `now_h` so that recovery
+    # can book onto later departures; every deadline falls before it.
+    horizon_h: float = 144.0
     now_h: float = 36.0
     # 0 = trucks run mostly empty, 1 = almost no spare room on any leg.
     capacity_tightness: float = 0.5
@@ -46,6 +50,9 @@ class ScenarioConfig:
     anomaly_rate: float = 0.04
     n_incidents: int = 2          # MISSORT bursts
     n_disruptions: int = 8
+    # Benign noise that detection has to see through.
+    trip_delay_rate: float = 0.2  # share of trips that run 0.5-4 h late end to end
+    scan_lag_rate: float = 0.05   # share of scans that reach the system 1-6 h late
 
 
 @dataclass(frozen=True)
@@ -127,7 +134,8 @@ class Shipment:
 class ScanEvent:
     scan_id: str
     shipment_id: str
-    ts_h: float
+    ts_h: float                # when the scan happened (scanner clock)
+    recorded_h: float          # when it reached the system; visible iff <= now
     hub_id: str
     event_type: str
     leg_id: Optional[str] = None
@@ -156,6 +164,14 @@ class TruthRecord:
     incident_id: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class TripDelay:
+    """How late a trip actually ran (whole trip shifted). Not visible to the operator,
+    who can only infer it from the scans of parcels on board."""
+    trip_id: str
+    delay_h: float
+
+
 @dataclass
 class Scenario:
     config: ScenarioConfig
@@ -165,9 +181,10 @@ class Scenario:
     trips: list[Trip]
     legs: list[TripLeg]
     shipments: list[Shipment]
-    scans: list[ScanEvent]           # visible scans only (ts_h <= now)
+    scans: list[ScanEvent]           # visible scans only (recorded_h <= now)
     disruptions: list[Disruption]
     truth: list[TruthRecord] = field(default_factory=list)
+    trip_delays: list[TripDelay] = field(default_factory=list)  # truth too
 
     @property
     def now(self) -> float:

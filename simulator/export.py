@@ -17,6 +17,7 @@ from .models import (
     ScanEvent,
     Shipment,
     Trip,
+    TripDelay,
     TripLeg,
     TruthRecord,
     column_names,
@@ -33,7 +34,10 @@ TABLES: dict[str, tuple[type, str]] = {
     "scan_events": (ScanEvent, "scans"),
     "disruptions": (Disruption, "disruptions"),
     "sim_truth": (TruthRecord, "truth"),
+    "sim_trip_delays": (TripDelay, "trip_delays"),
 }
+# Tables only the scorer and the replay benchmark may read.
+TRUTH_TABLES = ("sim_truth", "sim_trip_delays")
 
 
 def write_csvs(sc: Scenario, out: Path) -> None:
@@ -82,6 +86,8 @@ def summary(sc: Scenario) -> dict:
         "trip_legs": len(sc.legs),
         "shipments": len(sc.shipments),
         "scan_events": len(sc.scans),
+        "late_uploaded_scans": sum(e.recorded_h - e.ts_h > 0.5 for e in sc.scans),
+        "delayed_trips": len(sc.trip_delays),
         "last_scan_state": dict(sorted(states.items())),
         "priorities": dict(sorted(Counter(s.priority for s in sc.shipments).items())),
         "stranded": len(sc.truth),

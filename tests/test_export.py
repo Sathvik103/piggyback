@@ -27,7 +27,7 @@ def schema_columns() -> dict[str, list[str]]:
         cols = []
         for line in body.splitlines():
             word = line.strip().split(" ", 1)[0]
-            if word and word not in ("CHECK", "UNIQUE", "PRIMARY", "FOREIGN", "--") and not word.startswith("--"):
+            if re.fullmatch(r"[a-z_][a-z0-9_]*", word):  # skips CHECK/UNIQUE, comments, continuations
                 cols.append(word)
         out[name] = cols
     return out

@@ -4,12 +4,13 @@ import pytest
 
 from simulator import generate_scenario
 from simulator.export import to_dict
-from simulator.generator import planned_scans
+from simulator.generator import SCAN_LAG_RANGE_H, actual_scans
 from simulator.hubs import MIN_CONNECTION_H
 from simulator.models import (
     ANOMALY_HELD,
     ANOMALY_LOST_SCAN,
     ANOMALY_MISROUTE,
+    ANOMALY_MISSED_CONNECTION,
     ANOMALY_MISSORT,
     ANOMALY_TYPES,
     SCAN_HELD,
@@ -93,28 +94,41 @@ def test_planned_itineraries_are_feasible(scenario):
         assert s.planned_arrival_h <= s.deadline_h
 
 
-def test_scans_are_cut_at_now_and_ordered(scenario):
-    for sid, scans in _scans_by_shipment(scenario).items():
+def test_scans_are_visible_only_once_recorded_and_ordered(scenario):
+    by_ship = _scans_by_shipment(scenario)
+    for sid, scans in by_ship.items():
         ts = [e.ts_h for e in scans]
         assert ts == sorted(ts)
-        assert max(ts) <= scenario.now
-    # Every shipment was created before now, so each has at least its induction scan.
-    assert len(_scans_by_shipment(scenario)) == len(scenario.shipments)
+        assert all(e.ts_h <= e.recorded_h <= scenario.now for e in scans)
+    # Only a parcel inducted within the last few hours can have no visible scan yet.
+    assert len(by_ship) >= 0.99 * len(scenario.shipments)
+    assert any(e.recorded_h - e.ts_h >= SCAN_LAG_RANGE_H[0] for e in scenario.scans)
 
 
-def test_healthy_shipments_follow_their_plan(scenario):
+def test_healthy_shipments_follow_their_plan_shifted_by_trip_delays(scenario):
     stranded = {t.shipment_id for t in scenario.truth}
     legs = {l.leg_id: l for l in scenario.legs}
+    delay = {d.trip_id: d.delay_h for d in scenario.trip_delays}
     by_ship = _scans_by_shipment(scenario)
     for s in scenario.shipments:
         if s.shipment_id in stranded:
             continue
-        plan = [p for p in planned_scans(s, [legs[i] for i in s.planned_legs.split(";")]) if p[0] <= scenario.now]
+        expected, _ = actual_scans(s, [legs[i] for i in s.planned_legs.split(";")], delay)
+        happened = [p for p in expected if p[0] <= scenario.now]
         seen = [(e.ts_h, e.hub_id, e.event_type, e.leg_id, e.note) for e in by_ship[s.shipment_id]]
-        assert seen == plan
+        assert set(seen) <= set(happened)
+        # Upload lag hides a scan for at most SCAN_LAG_RANGE_H[1] hours.
+        assert {p for p in happened if p[0] < scenario.now - SCAN_LAG_RANGE_H[1]} <= set(seen)
 
 
-def test_stranded_histories_match_ground_truth(scenario):
+@pytest.fixture(scope="module")
+def no_lag():
+    """Seed 42 with every scan uploaded on time, so histories end where truth says."""
+    return generate_scenario(seed=42, scan_lag_rate=0.0)
+
+
+def test_stranded_histories_match_ground_truth(no_lag):
+    scenario = no_lag
     by_ship = _scans_by_shipment(scenario)
     legs = {l.leg_id: l for l in scenario.legs}
     for t in scenario.truth:
@@ -122,11 +136,18 @@ def test_stranded_histories_match_ground_truth(scenario):
         assert t.stranded_at_h <= scenario.now
         if t.anomaly_type == ANOMALY_HELD:
             assert last.event_type == SCAN_HELD and last.hub_id == t.true_hub_id and last.note
-        elif t.anomaly_type in (ANOMALY_MISSORT, ANOMALY_MISROUTE):
+        elif t.anomaly_type in (ANOMALY_MISSORT, ANOMALY_MISROUTE, ANOMALY_MISSED_CONNECTION):
             assert last.event_type == SCAN_UNLOADED and last.hub_id == t.true_hub_id
+            assert last.ts_h == t.stranded_at_h
         elif t.anomaly_type == ANOMALY_LOST_SCAN:
             # Last thing seen is the load; the parcel actually reached the leg's end hub.
             assert last.event_type == SCAN_LOADED
+        if t.anomaly_type == ANOMALY_MISSED_CONNECTION:
+            ship = next(s for s in scenario.shipments if s.shipment_id == t.shipment_id)
+            path = [legs[i] for i in ship.planned_legs.split(";")]
+            nxt = path[[l.leg_id for l in path].index(last.leg_id) + 1]
+            delay = {d.trip_id: d.delay_h for d in scenario.trip_delays}
+            assert last.ts_h + MIN_CONNECTION_H > nxt.departure_h + delay.get(nxt.trip_id, 0.0)
         if t.anomaly_type == ANOMALY_MISROUTE:
             ship = next(s for s in scenario.shipments if s.shipment_id == t.shipment_id)
             planned_legs = ship.planned_legs.split(";")
@@ -157,11 +178,14 @@ def test_benchmark_knobs():
     tight = generate_scenario(seed=3, n_shipments=200, capacity_tightness=0.9)
     assert sum(l.spare_kg for l in tight.legs) < 0.5 * sum(l.spare_kg for l in loose.legs)
 
-    clean = generate_scenario(seed=3, n_shipments=200, anomaly_rate=0.0, n_incidents=0, n_disruptions=0)
+    clean = generate_scenario(seed=3, n_shipments=200, anomaly_rate=0.0, n_incidents=0, n_disruptions=0,
+                              trip_delay_rate=0.0, scan_lag_rate=0.0)
     assert len(clean.shipments) == 200 and clean.truth == [] and clean.disruptions == []
+    assert clean.trip_delays == [] and all(e.recorded_h - e.ts_h <= 0.25 for e in clean.scans)
 
 
-@pytest.mark.parametrize("bad", [{"capacity_tightness": 1.5}, {"anomaly_rate": -0.1}, {"now_h": 100.0}])
+@pytest.mark.parametrize("bad", [{"capacity_tightness": 1.5}, {"anomaly_rate": -0.1}, {"now_h": 200.0},
+                                 {"trip_delay_rate": 2.0}, {"scan_lag_rate": -1.0}])
 def test_invalid_config_is_rejected(bad):
     with pytest.raises(ValueError):
         generate_scenario(seed=1, n_shipments=10, **bad)
