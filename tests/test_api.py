@@ -115,6 +115,30 @@ def test_plans_round_trip_and_evaluate(client, tmp_path_factory):
     assert client.post("/scenarios/s7/plans", json={"solver": "magic"}).status_code == 422
 
 
+def test_plan_choices_carry_routes_for_the_map(client):
+    if not client.get("/scenarios/s7/plans").json():
+        client.post("/scenarios/s7/plans", json={"solver": "greedy"})
+    plan = client.get("/scenarios/s7/plans/p1").json()
+    hubs = {f["id"] for f in client.get("/scenarios/s7/network").json()["features"]
+            if f["properties"]["kind"] == "hub"}
+    for c in plan["choices"]:
+        assert c["route"][0] == c["from_hub"] and set(c["route"]) <= hubs
+        if c["mode"] == "PIGGYBACK":
+            assert len(c["route"]) == len(c["legs"]) + 1
+        elif c["mode"] == "DEDICATED":
+            assert len(c["route"]) == 2
+
+
+def test_dashboard_is_served(client):
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307) and r.headers["location"] == "/dashboard/"
+    page = client.get("/dashboard/")
+    assert page.status_code == 200 and "maplibre-gl" in page.text and "app.js" in page.text
+    js = client.get("/dashboard/app.js")
+    assert js.status_code == 200 and "/evaluation/" in js.text
+    assert client.get("/dashboard/style.css").status_code == 200
+
+
 def test_detection_evaluation_reads_truth(client):
     s = client.get("/scenarios/s7/evaluation/detections").json()
     assert 0.0 < s["precision"] <= 1.0 and 0.0 < s["recall"] <= 1.0

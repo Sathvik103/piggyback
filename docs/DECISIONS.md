@@ -14,7 +14,7 @@ Piggyback finds shipments that are stranded or misplaced in a hub-and-spoke line
 | Storage | PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) | Relational timetable + geography for maps and distance queries |
 | Optimizer (step 4) | OR-Tools CP-SAT (`ortools>=9.11,<10`) | Choosing options under shared leg capacity is a small integer program; CP-SAT proves optimality in under a second at default size |
 | API (step 6) | FastAPI + uvicorn, over scenario folders | Built. Typed request validation and free OpenAPI docs; file-backed so it runs without Docker |
-| Dashboard (step 7) | A MapLibre front end on the API | Proposed; not built yet |
+| Dashboard (step 7) | Plain HTML/CSS/JS + MapLibre GL 4.7.1, served by the API | Built. No build step or framework for one page; MapLibre for a GPU map with GeoJSON layers |
 | Tests | pytest | |
 
 Times are stored as **hours since scenario start** (floats), not timestamps. This keeps the simulator, SQL and the optimizer in the same unit. The dashboard can map them to wall-clock time.
@@ -27,7 +27,7 @@ Times are stored as **hours since scenario start** (floats), not timestamps. Thi
 4. **Optimizer** (done): choose one option per shipment (or none) under shared leg capacity. Minimise priority-weighted lateness plus cost.
 5. **Replay benchmark** (done, first version): run 2–4 over seeds × capacity tightness. Compare against greedy and do-nothing baselines. See "Recovery" below.
 6. **API** (done): serve scenarios, detections and plans. Ground truth only under `/evaluation/` routes (see README).
-7. **Dashboard**: map of hubs and lanes, stranded shipments, the proposed plan and its KPIs.
+7. **Dashboard** (done): map of hubs and lanes, stranded shipments, the proposed plan and its KPIs. Truth-based numbers are opt-in and visually separated (see README).
 
 Out of scope: real carrier integrations, last-mile delivery, pricing, live OSRM routing (planned as a later swap for road times).
 

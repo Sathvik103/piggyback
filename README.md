@@ -2,20 +2,20 @@
 
 A delay-aware shipment recovery engine. It finds stranded or misplaced shipments and recovers them by loading them onto trips that are already scheduled and have spare capacity. See `docs/DECISIONS.md` for the stack, scope and benchmark design.
 
-**Status:** steps 1–6 of 7 are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark and an HTTP API. The dashboard is not built yet.
+**Status:** all 7 steps are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark, an HTTP API and a map dashboard.
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 56 tests
+python -m pytest -q                                        # 58 tests
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
 python -m recovery.cli data/scenario_42                    # plan_*.csv per solver + replayed KPIs
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
 python scripts/eval_recovery.py 10                         # recovery over seeds 1-10 x 3 tightness levels
-python -m uvicorn api.app:app --port 8000                  # HTTP API; docs at http://localhost:8000/docs
+python -m uvicorn api.app:app --port 8000                  # dashboard at http://localhost:8000/, API docs at /docs
 ```
 
 Database (needs Docker running):
@@ -86,13 +86,33 @@ The tighter the spare capacity, the more the optimizer gains over greedy (12% lo
 
 Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
 
+## Dashboard
+
+The API serves it at `/dashboard/` (and `/` redirects there). It's one page of plain HTML, CSS and JavaScript with a MapLibre map, so there's no build step.
+
+- **Map**:
+  - hubs sized by how many parcels are flagged there
+  - the selected plan's piggyback hops in blue, wider when more parcels ride them
+  - dedicated trucks dashed in orange
+  - lane delays dashed, and closed hubs ringed, in the reserved status colors
+  - hover any of these for details
+- **Header**: pick the scenario and plan, change the detection grace period, choose a solver and press **Run plan**.
+- **KPIs**: parcels flagged, at risk, hubs affected, and what the plan does (piggyback, dedicated, left) at what cost.
+- **Detections**: a chart of flags by kind (click a bar to filter) and a table, most urgent first.
+- **Drill-downs**:
+  - **Hub:** the parcels flagged there and its departures with spare room in the next 24 h.
+  - **Shipment:** its booking, visible scans (late uploads marked), the detection evidence and its plan choice. Its booked route (dotted) and recovery route (bold) are drawn on the map.
+- **Show replay vs truth**: an opt-in row, drawn with dashed borders, showing detection precision and recall and the plan's on-time rate, failures and realized penalty. These numbers come from the `/evaluation/` routes, so an operator view never shows them by default.
+
+Light and dark mode follow the system setting, and each has its own palette tones.
+
 ## Layout
 
 ```
 simulator/   models, hub data, generator, CSV/JSON export, CLI
 detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
-api/         FastAPI app and the scenario store behind it
+api/         FastAPI app, the scenario store behind it, and static/ (the dashboard)
 db/          schema.sql (PostgreSQL + PostGIS), load.sql
 scripts/     load_db.sh, eval_detection.py, eval_recovery.py
 tests/       simulator, schema/loader/CSV cross-checks, detection, recovery, API
@@ -104,6 +124,8 @@ docs/        DECISIONS.md
 - `db/schema.sql` and `scripts/load_db.sh` have been run against PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) with seed 42. All constraints passed and reloading is idempotent. The pytest suite only cross-checks them statically; it does not start a database. The schema is applied only when the volume is first created, so after a schema change run `docker compose down -v` before `up`.
 - Detection, recovery and the API run in Python on scenario folders (CSV) or an in-memory scenario. They don't query Postgres yet, and plans are saved as CSV (CLI) or JSON (API), not in the database.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
+- The dashboard loads MapLibre from unpkg.com and the basemap from OpenStreetMap's tile servers, so it needs internet access. If tiles are slow or blocked, the data layers still draw over a plain background. OSM's tile servers are fine for light development use but not for production traffic.
+- The dashboard has no automated browser tests. The pytest suite checks that it's served and that plans carry routes; the interactions were checked by hand in a browser.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.
 - Road times are haversine × 1.3 at 45 km/h until an OSRM matrix replaces them. Vehicle costs and the ₹250 value of a late hour are assumed figures. Spare capacity is sampled rather than derived from real loads. The calibration numbers in `docs/DECISIONS.md` describe these assumptions, not real-world carriers.

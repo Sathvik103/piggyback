@@ -18,7 +18,8 @@ from typing import Literal, Optional
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from detection import DetectorConfig, score
@@ -31,6 +32,7 @@ from .store import SCENARIO_ID, Conflict, NotFound, ScenarioStore
 
 DEFAULT_GRACE_H = DetectorConfig().grace_h
 _defaults = ScenarioConfig()
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 class ScenarioCreate(BaseModel):
@@ -180,8 +182,22 @@ def create_app(data_dir: Path) -> FastAPI:
 
     @app.get("/scenarios/{sid}/plans/{plan_id}")
     def get_plan(sid: str, plan_id: str, mode: Optional[str] = None):
+        """Each choice also gets `route`: the hubs it passes through, for drawing."""
         rec = store.plan(sid, plan_id)
-        choices = [c for c in rec["choices"] if mode is None or c["mode"] == mode]
+        v = store.view(sid)
+        legs = {l.leg_id: l for l in v.legs}
+        dest = {s.shipment_id: s.dest_hub for s in v.shipments}
+        choices = []
+        for c in rec["choices"]:
+            if mode is not None and c["mode"] != mode:
+                continue
+            if c["legs"]:
+                route = [c["from_hub"]] + [legs[l].to_hub for l in c["legs"]]
+            elif c["mode"] == "DEDICATED":
+                route = [c["from_hub"], dest[c["shipment_id"]]]
+            else:
+                route = [c["from_hub"]]
+            choices.append({**c, "route": route})
         return {**_plan_summary(rec), "choices": choices}
 
     # ------------------------------------------------------------------ evaluation (reads truth)
@@ -203,6 +219,13 @@ def create_app(data_dir: Path) -> FastAPI:
             body["outcomes"] = [asdict(o) for o in outs]
         return body
 
+    # ------------------------------------------------------------------ dashboard
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse("/dashboard/")
+
+    app.mount("/dashboard", StaticFiles(directory=STATIC_DIR, html=True), name="dashboard")
     return app
 
 
