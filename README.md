@@ -2,19 +2,20 @@
 
 A delay-aware shipment recovery engine. It finds stranded or misplaced shipments and recovers them by loading them onto trips that are already scheduled and have spare capacity. See `docs/DECISIONS.md` for the stack, scope and benchmark design.
 
-**Status:** steps 1–5 of 7 are built: the schema, the seeded simulator, detection, recovery options, the optimizer and a replay benchmark. The API and the dashboard are not built yet.
+**Status:** steps 1–6 of 7 are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark and an HTTP API. The dashboard is not built yet.
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 40 tests
+python -m pytest -q                                        # 56 tests
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
 python -m recovery.cli data/scenario_42                    # plan_*.csv per solver + replayed KPIs
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
 python scripts/eval_recovery.py 10                         # recovery over seeds 1-10 x 3 tightness levels
+python -m uvicorn api.app:app --port 8000                  # HTTP API; docs at http://localhost:8000/docs
 ```
 
 Database (needs Docker running):
@@ -66,22 +67,43 @@ Totals over seeds 1–10, replayed against truth:
 
 The tighter the spare capacity, the more the optimizer gains over greedy (12% lower penalty at 0.9).
 
+## API
+
+`api/` is a FastAPI app over the scenario folders in `data/` (or `$PIGGYBACK_DATA_DIR`). Plans are saved as `data/<scenario>/plans/<plan_id>.json`, so they survive restarts. Interactive docs are at `/docs`.
+
+| Route | What it returns |
+|---|---|
+| `GET /scenarios`, `POST /scenarios` | List scenarios, or generate one from a seed and the benchmark knobs |
+| `GET /scenarios/{id}` | Scenario summary |
+| `GET /scenarios/{id}/network` | Hubs and lanes as GeoJSON, for the map |
+| `GET /scenarios/{id}/disruptions` | Known disruptions |
+| `GET /scenarios/{id}/detections` | Flags, filterable by `kind`, `hub` and `priority`, with `grace_h`, paging and counts |
+| `GET /scenarios/{id}/shipments/{sid}` | A shipment's booking, visible scans, detection and plan choices |
+| `GET /scenarios/{id}/hubs/{hub}` | Parcels stuck at a hub, and departures with spare room in the next `window_h` |
+| `POST /scenarios/{id}/plans` | Run detection → options → `cpsat` / `greedy` / `none`; returns a summary |
+| `GET /scenarios/{id}/plans[/{plan_id}]` | Saved plans; one plan's choices, filterable by `mode` |
+| `GET /scenarios/{id}/evaluation/...` | Detection score and plan replay against ground truth |
+
+Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
+
 ## Layout
 
 ```
 simulator/   models, hub data, generator, CSV/JSON export, CLI
 detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
+api/         FastAPI app and the scenario store behind it
 db/          schema.sql (PostgreSQL + PostGIS), load.sql
 scripts/     load_db.sh, eval_detection.py, eval_recovery.py
-tests/       simulator, schema/loader/CSV cross-checks, detection, recovery
+tests/       simulator, schema/loader/CSV cross-checks, detection, recovery, API
 docs/        DECISIONS.md
 ```
 
 ## Known limitations
 
 - `db/schema.sql` and `scripts/load_db.sh` have been run against PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) with seed 42. All constraints passed and reloading is idempotent. The pytest suite only cross-checks them statically; it does not start a database. The schema is applied only when the volume is first created, so after a schema change run `docker compose down -v` before `up`.
-- Detection and recovery run in Python on CSVs or an in-memory scenario. They don't query Postgres yet, and plans are written to CSV, not to the database.
+- Detection, recovery and the API run in Python on scenario folders (CSV) or an in-memory scenario. They don't query Postgres yet, and plans are saved as CSV (CLI) or JSON (API), not in the database.
+- The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.
 - Road times are haversine × 1.3 at 45 km/h until an OSRM matrix replaces them. Vehicle costs and the ₹250 value of a late hour are assumed figures. Spare capacity is sampled rather than derived from real loads. The calibration numbers in `docs/DECISIONS.md` describe these assumptions, not real-world carriers.

@@ -13,7 +13,8 @@ Piggyback finds shipments that are stranded or misplaced in a hub-and-spoke line
 | Simulator, engine | Python 3.11+, standard library only | Deterministic with one `random.Random(seed)`; no NumPy version drift in benchmarks |
 | Storage | PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) | Relational timetable + geography for maps and distance queries |
 | Optimizer (step 4) | OR-Tools CP-SAT (`ortools>=9.11,<10`) | Choosing options under shared leg capacity is a small integer program; CP-SAT proves optimality in under a second at default size |
-| API + dashboard (steps 6–7) | FastAPI + a MapLibre front end | Proposed; nothing built yet |
+| API (step 6) | FastAPI + uvicorn, over scenario folders | Built. Typed request validation and free OpenAPI docs; file-backed so it runs without Docker |
+| Dashboard (step 7) | A MapLibre front end on the API | Proposed; not built yet |
 | Tests | pytest | |
 
 Times are stored as **hours since scenario start** (floats), not timestamps. This keeps the simulator, SQL and the optimizer in the same unit. The dashboard can map them to wall-clock time.
@@ -25,7 +26,7 @@ Times are stored as **hours since scenario start** (floats), not timestamps. Thi
 3. **Option generation** (done): for each flagged shipment, list feasible recovery itineraries over trip legs departing after `now`. Respect spare kg/m³, connection times and disruptions.
 4. **Optimizer** (done): choose one option per shipment (or none) under shared leg capacity. Minimise priority-weighted lateness plus cost.
 5. **Replay benchmark** (done, first version): run 2–4 over seeds × capacity tightness. Compare against greedy and do-nothing baselines. See "Recovery" below.
-6. **API**: serve scenarios, detections and plans.
+6. **API** (done): serve scenarios, detections and plans. Ground truth only under `/evaluation/` routes (see README).
 7. **Dashboard**: map of hubs and lanes, stranded shipments, the proposed plan and its KPIs.
 
 Out of scope: real carrier integrations, last-mile delivery, pricing, live OSRM routing (planned as a later swap for road times).
