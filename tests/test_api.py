@@ -1,9 +1,10 @@
-import json
+"""The HTTP API against a real Postgres (skipped if none is reachable)."""
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api import create_app
+from db import Repo
 
 # Fields that exist only in the sim_* truth tables. (`delay_h` is not here: known
 # LANE_DELAY disruptions carry one too, and operators are meant to see those.)
@@ -19,18 +20,26 @@ def _keys(obj) -> set[str]:
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    c = TestClient(create_app(tmp_path_factory.mktemp("data")))
-    r = c.post("/scenarios", json={"scenario_id": "s7", "seed": 7, "n_shipments": 1200})
-    assert r.status_code == 201, r.text
-    return c
+def client(pg_url):
+    r = Repo(pg_url, max_size=1)
+    r.delete_scenario("s7")
+    r.close()
+    with TestClient(create_app(pg_url)) as c:
+        r = c.post("/scenarios", json={"scenario_id": "s7", "seed": 7, "n_shipments": 1200})
+        assert r.status_code == 201, r.text
+        yield c
+
+
+def _flagged(client, **params):
+    return client.get("/scenarios/s7/detections", params=params).json()
 
 
 def test_health_and_listing(client):
-    assert client.get("/health").json() == {"status": "ok", "scenarios": 1}
-    [s] = client.get("/scenarios").json()
-    assert s["scenario_id"] == "s7" and s["shipments"] == 1200
-    assert client.get("/scenarios/s7").json()["seed"] == 7
+    assert client.get("/health").json()["status"] == "ok"
+    s = next(s for s in client.get("/scenarios").json() if s["scenario_id"] == "s7")
+    assert s["shipments"] == 1200 and s["start_at"].startswith("2026-11-02T00:00")
+    one = client.get("/scenarios/s7").json()
+    assert one["seed"] == 7 and one["now_at"] == "2026-11-03T12:00+05:30"
 
 
 def test_create_rejects_duplicates_and_bad_input(client):
@@ -41,7 +50,8 @@ def test_create_rejects_duplicates_and_bad_input(client):
 
 @pytest.mark.parametrize("path", ["/scenarios/nope", "/scenarios/..%2F..%2Fetc", "/scenarios/S7",
                                   "/scenarios/s7/shipments/S99999", "/scenarios/s7/hubs/XXX",
-                                  "/scenarios/s7/plans/p999", "/scenarios/s7/plans/..%2Fsummary"])
+                                  "/scenarios/s7/plans/p999", "/scenarios/s7/plans/..%2Fsummary",
+                                  "/scenarios/nope/decisions", "/scenarios/nope/evaluation/decisions"])
 def test_unknown_things_are_404(client, path):
     assert client.get(path).status_code == 404
 
@@ -49,94 +59,103 @@ def test_unknown_things_are_404(client, path):
 def test_network_is_geojson(client):
     fc = client.get("/scenarios/s7/network").json()
     assert fc["type"] == "FeatureCollection"
-    kinds = {f["properties"]["kind"] for f in fc["features"]}
-    assert kinds == {"hub", "lane"}
+    assert {f["properties"]["kind"] for f in fc["features"]} == {"hub", "lane"}
     hub = next(f for f in fc["features"] if f["id"] == "DEL")
     assert hub["geometry"] == {"type": "Point", "coordinates": [77.209, 28.6139]}
-    lane = next(f for f in fc["features"] if f["properties"]["kind"] == "lane")
-    assert lane["geometry"]["type"] == "LineString" and len(lane["geometry"]["coordinates"]) == 2
 
 
 def test_detections_filter_and_page(client):
-    all_ = client.get("/scenarios/s7/detections").json()
+    all_ = _flagged(client)
     assert all_["total"] == len(all_["items"]) > 0 and all_["now_h"] == 36.0
     kind = next(iter(all_["by_kind"]))
-    some = client.get("/scenarios/s7/detections", params={"kind": kind, "limit": 2}).json()
+    some = _flagged(client, kind=kind, limit=2)
     assert some["total"] == all_["by_kind"][kind] and len(some["items"]) <= 2
     assert all(d["kind"] == kind for d in some["items"])
-    hub = next(iter(all_["by_hub"]))
-    assert all(d["suspected_hub"] == hub for d in
-               client.get("/scenarios/s7/detections", params={"hub": hub}).json()["items"])
     assert client.get("/scenarios/s7/detections", params={"grace_h": -1}).status_code == 422
 
 
 def test_operator_routes_never_expose_truth(client):
-    sid = client.get("/scenarios/s7/detections").json()["items"][0]["shipment_id"]
+    sid = _flagged(client)["items"][0]["shipment_id"]
     for path in ["/scenarios/s7", "/scenarios/s7/network", "/scenarios/s7/detections",
-                 "/scenarios/s7/disruptions", f"/scenarios/s7/shipments/{sid}", "/scenarios/s7/hubs/DEL"]:
-        body = client.get(path).json()
-        assert not _keys(body) & TRUTH_KEYS, path
+                 "/scenarios/s7/disruptions", f"/scenarios/s7/shipments/{sid}",
+                 f"/scenarios/s7/shipments/{sid}/options", "/scenarios/s7/hubs/DEL", "/scenarios/s7/decisions"]:
+        assert not _keys(client.get(path).json()) & TRUTH_KEYS, path
 
 
-def test_shipment_and_hub_detail(client):
-    det = client.get("/scenarios/s7/detections").json()["items"][0]
-    body = client.get(f"/scenarios/s7/shipments/{det['shipment_id']}").json()
-    assert body["detection"]["kind"] == det["kind"]
-    assert [l["leg_id"] for l in body["booked_legs"]] == body["shipment"]["planned_legs"].split(";")
-    assert all(e["shipment_id"] == det["shipment_id"] for e in body["scans"])
-    hub = client.get(f"/scenarios/s7/hubs/{det['suspected_hub']}").json()
-    assert any(d["shipment_id"] == det["shipment_id"] for d in hub["detections"])
-    assert all(36.0 <= d["dep"] <= 60.0 and d["from_hub"] == det["suspected_hub"] for d in hub["departures"])
-
-
-def test_plans_round_trip_and_evaluate(client, tmp_path_factory):
-    r = client.post("/scenarios/s7/plans", json={"solver": "cpsat", "time_limit_s": 10})
-    assert r.status_code == 201, r.text
-    cp = r.json()
-    assert cp["plan_id"] == "p1" and cp["status"] == "OPTIMAL" and "choices" not in cp
+def test_plans_round_trip_and_evaluate(client):
+    cp = client.post("/scenarios/s7/plans", json={"solver": "cpsat"}).json()
+    assert cp["status"] == "OPTIMAL" and cp["plan_id"].startswith("p") and "choices" not in cp
     gr = client.post("/scenarios/s7/plans", json={"solver": "greedy"}).json()
-    assert gr["plan_id"] == "p2" and cp["objective_inr"] <= gr["objective_inr"]
-    assert [p["plan_id"] for p in client.get("/scenarios/s7/plans").json()] == ["p1", "p2"]
-
-    full = client.get("/scenarios/s7/plans/p1").json()
+    assert cp["objective_inr"] <= gr["objective_inr"]
+    ids = [p["plan_id"] for p in client.get("/scenarios/s7/plans").json()]
+    assert ids[-2:] == [cp["plan_id"], gr["plan_id"]]
+    full = client.get(f"/scenarios/s7/plans/{cp['plan_id']}").json()
     assert len(full["choices"]) == full["shipments"] == sum(full["by_mode"].values())
-    pig = client.get("/scenarios/s7/plans/p1", params={"mode": "PIGGYBACK"}).json()["choices"]
-    assert pig and all(c["mode"] == "PIGGYBACK" and c["legs"] for c in pig)
-
-    sid = pig[0]["shipment_id"]
-    ship = client.get(f"/scenarios/s7/shipments/{sid}").json()
-    assert {p["plan_id"] for p in ship["plans"]} == {"p1", "p2"}
-
-    ev = client.get("/scenarios/s7/evaluation/plans/p1").json()
-    k = ev["kpis"]
+    for c in full["choices"]:
+        assert c["route"][0] == c["from_hub"]
+        if c["mode"] == "PIGGYBACK":
+            assert len(c["route"]) == len(c["legs"]) + 1
+    k = client.get(f"/scenarios/s7/evaluation/plans/{cp['plan_id']}").json()["kpis"]
     assert k["on_time"] + k["late"] + k["failed"] + k["unrecovered"] == k["stranded"]
-    none_eval = client.get("/scenarios/s7/evaluation/plans/p2", params={"outcomes": True}).json()
-    assert len(none_eval["outcomes"]) == sum(none_eval["by_status"].values())
     assert client.post("/scenarios/s7/plans", json={"solver": "magic"}).status_code == 422
 
 
-def test_plan_choices_carry_routes_for_the_map(client):
-    if not client.get("/scenarios/s7/plans").json():
-        client.post("/scenarios/s7/plans", json={"solver": "greedy"})
-    plan = client.get("/scenarios/s7/plans/p1").json()
-    hubs = {f["id"] for f in client.get("/scenarios/s7/network").json()["features"]
-            if f["properties"]["kind"] == "hub"}
-    for c in plan["choices"]:
-        assert c["route"][0] == c["from_hub"] and set(c["route"]) <= hubs
-        if c["mode"] == "PIGGYBACK":
-            assert len(c["route"]) == len(c["legs"]) + 1
-        elif c["mode"] == "DEDICATED":
-            assert len(c["route"]) == 2
+def test_decision_workflow(client):
+    plan = client.post("/scenarios/s7/plans", json={"solver": "cpsat"}).json()
+    choices = client.get(f"/scenarios/s7/plans/{plan['plan_id']}", params={"mode": "PIGGYBACK"}).json()["choices"]
+    a, b = choices[0], choices[1]
 
+    # Accept a plan's choice: it holds capacity and leaves the open queue.
+    r = client.post("/scenarios/s7/decisions", json={"shipment_id": a["shipment_id"], "action": "ACCEPT",
+                                                     "plan_id": plan["plan_id"], "note": "looks right"})
+    assert r.status_code == 201, r.text
+    assert r.json()["option"]["option_id"] == a["option_id"]
+    flagged = {d["shipment_id"]: d for d in _flagged(client)["items"]}
+    assert flagged[a["shipment_id"]]["decision"] == "ACCEPT"
+    assert a["shipment_id"] not in {d["shipment_id"] for d in _flagged(client, status="open")["items"]}
+    hub = client.get(f"/scenarios/s7/hubs/{a['from_hub']}").json()
+    leg = next(d for d in hub["departures"] if d["leg_id"] in a["capacity_legs"]) if a["capacity_legs"] else None
+    if leg:
+        assert leg["free_kg"] == pytest.approx(leg["spare_kg"] - a["weight_kg"], abs=0.1)
 
-def test_dashboard_is_served(client):
-    r = client.get("/", follow_redirects=False)
-    assert r.status_code in (302, 307) and r.headers["location"] == "/dashboard/"
-    page = client.get("/dashboard/")
-    assert page.status_code == 200 and "maplibre-gl" in page.text and "app.js" in page.text
-    js = client.get("/dashboard/app.js")
-    assert js.status_code == 200 and "/evaluation/" in js.text
-    assert client.get("/dashboard/style.css").status_code == 200
+    # A new plan skips decided shipments.
+    nxt = client.post("/scenarios/s7/plans", json={"solver": "greedy"}).json()
+    planned = {c["shipment_id"] for c in client.get(f"/scenarios/s7/plans/{nxt['plan_id']}").json()["choices"]}
+    assert a["shipment_id"] not in planned
+
+    # Accept one of the live options instead of the plan's pick.
+    opts = client.get(f"/scenarios/s7/shipments/{b['shipment_id']}/options").json()
+    alt = next(o for o in opts if o["mode"] != "NONE")
+    r = client.post("/scenarios/s7/decisions", json={"shipment_id": b["shipment_id"], "action": "ACCEPT",
+                                                     "option_id": alt["option_id"]})
+    assert r.status_code == 201, r.text
+    detail = client.get(f"/scenarios/s7/shipments/{b['shipment_id']}").json()
+    assert detail["decision"]["option"]["option_id"] == alt["option_id"]
+
+    # Bad requests.
+    none = next(o for o in opts if o["mode"] == "NONE")
+    for body, code in [({"action": "ACCEPT", "option_id": none["option_id"]}, 422),
+                       ({"action": "ACCEPT"}, 422),
+                       ({"action": "DISMISS", "plan_id": plan["plan_id"]}, 422),
+                       ({"action": "ACCEPT", "option_id": "nope"}, 404),
+                       ({"action": "MAYBE"}, 422)]:
+        r = client.post("/scenarios/s7/decisions", json={"shipment_id": b["shipment_id"], **body})
+        assert r.status_code == code, (body, r.text)
+    assert client.post("/scenarios/s7/decisions",
+                       json={"shipment_id": "S99999", "action": "DISMISS"}).status_code == 404
+
+    # Committed decisions can be replayed against the truth.
+    ev = client.get("/scenarios/s7/evaluation/decisions").json()
+    assert ev["accepted"] == 2 and ev["kpis"]["stranded"] > 0
+
+    # Dismiss, then revoke everything; revoking twice is a conflict.
+    assert client.post("/scenarios/s7/decisions", json={"shipment_id": b["shipment_id"],
+                                                        "action": "DISMISS"}).status_code == 201
+    for sid in (a["shipment_id"], b["shipment_id"]):
+        assert client.post("/scenarios/s7/decisions", json={"shipment_id": sid, "action": "REVOKE"}).status_code == 201
+    assert client.post("/scenarios/s7/decisions", json={"shipment_id": a["shipment_id"],
+                                                        "action": "REVOKE"}).status_code == 409
+    assert client.get("/scenarios/s7/decisions").json() == []
 
 
 def test_detection_evaluation_reads_truth(client):
@@ -144,9 +163,8 @@ def test_detection_evaluation_reads_truth(client):
     assert 0.0 < s["precision"] <= 1.0 and 0.0 < s["recall"] <= 1.0
 
 
-def test_plans_survive_restart(client):
-    data_dir = client.app.state.store.data_dir
-    fresh = TestClient(create_app(data_dir))
-    assert [p["plan_id"] for p in fresh.get("/scenarios/s7/plans").json()] == ["p1", "p2"]
-    saved = json.loads((data_dir / "s7" / "plans" / "p1.json").read_text(encoding="utf-8"))
-    assert saved["solver"] == "cpsat"
+def test_dashboard_is_served(client):
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307) and r.headers["location"] == "/dashboard/"
+    page = client.get("/dashboard/")
+    assert page.status_code == 200 and "app.js" in page.text

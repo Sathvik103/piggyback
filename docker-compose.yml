@@ -6,11 +6,8 @@ services:
       POSTGRES_PASSWORD: piggyback
       POSTGRES_DB: piggyback
     ports:
-      - "5432:5432"
+      - "5433:5432"   # 5433 on the host: avoids clashing with a locally installed Postgres
     volumes:
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db:/db:ro
-      - ./data:/data:ro
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U piggyback -d piggyback"]
@@ -18,5 +15,6 @@ services:
       timeout: 3s
       retries: 30
 
+# The schema is applied by `python -m db migrate` (the API also runs it on start).
 volumes:
   pgdata:

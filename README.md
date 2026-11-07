@@ -8,24 +8,26 @@ A delay-aware shipment recovery engine. It finds stranded or misplaced shipments
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 58 tests
+python -m pytest -q                                        # 66 tests (DB tests skip if Postgres is down)
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
 python -m recovery.cli data/scenario_42                    # plan_*.csv per solver + replayed KPIs
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
 python scripts/eval_recovery.py 10                         # recovery over seeds 1-10 x 3 tightness levels
-python -m uvicorn api.app:app --port 8000                  # dashboard at http://localhost:8000/, API docs at /docs
+python -m uvicorn api.app:create_app --factory --port 8000 # dashboard at http://localhost:8000/, API docs at /docs
 ```
 
-Database (needs Docker running):
+Database (needs Docker running; the API needs it, the CLIs above don't):
 
 ```bash
-docker compose up -d db                  # applies db/schema.sql on first start
-scripts/load_db.sh data/scenario_42      # loads the CSVs, builds PostGIS geometry
+docker compose up -d db                      # Postgres 16 + PostGIS on localhost:5433
+python -m db migrate                         # apply db/migrations (the API also does this on start)
+python -m db load data/scenario_42           # load a simulator.cli folder, or:
+python -m db seed scenario_7 --seed 7        # generate straight into Postgres
 ```
 
-On Windows, run `load_db.sh` from Git Bash.
+The database is published on port **5433**, so it doesn't clash with a locally installed Postgres on 5432. Set `DATABASE_URL` to point elsewhere; tests use a separate `piggyback_test` database (`PIGGYBACK_TEST_DATABASE_URL`) that they wipe and re-migrate.
 
 ## What the simulator builds
 
@@ -69,7 +71,7 @@ The tighter the spare capacity, the more the optimizer gains over greedy (12% lo
 
 ## API
 
-`api/` is a FastAPI app over the scenario folders in `data/` (or `$PIGGYBACK_DATA_DIR`). Plans are saved as `data/<scenario>/plans/<plan_id>.json`, so they survive restarts. Interactive docs are at `/docs`.
+`api/` is a FastAPI app backed by Postgres, which is the system of record for scenarios, plans and operator decisions. Expensive derived data (the operator view, the planner's network, detections per grace period) is cached in memory per scenario. Interactive docs are at `/docs`.
 
 | Route | What it returns |
 |---|---|
@@ -82,7 +84,16 @@ The tighter the spare capacity, the more the optimizer gains over greedy (12% lo
 | `GET /scenarios/{id}/hubs/{hub}` | Parcels stuck at a hub, and departures with spare room in the next `window_h` |
 | `POST /scenarios/{id}/plans` | Run detection → options → `cpsat` / `greedy` / `none`; returns a summary |
 | `GET /scenarios/{id}/plans[/{plan_id}]` | Saved plans; one plan's choices, filterable by `mode` |
-| `GET /scenarios/{id}/evaluation/...` | Detection score and plan replay against ground truth |
+| `GET /scenarios/{id}/shipments/{sid}/options` | Live recovery options for a flagged shipment, against capacity still free |
+| `POST /scenarios/{id}/decisions` | `ACCEPT` a plan's choice or a live option, `DISMISS` a false flag, or `REVOKE` the decision in force; 409 if the capacity is gone |
+| `GET /scenarios/{id}/decisions` | Decisions in force |
+| `GET /scenarios/{id}/evaluation/...` | Detection score, a plan's replay, and a replay of the committed decisions, all against ground truth |
+
+**Decisions and capacity.**
+- **Append-only log:** decisions are never edited, and the latest row per shipment is the one in force.
+- **Holds:** an accepted recovery holds spare kg and m³ on the legs it rides. The hold is a database view derived from the decisions, so it can't drift out of sync with them.
+- **Planning:** plans and live options use the capacity left after holds, and a new plan only covers shipments nobody has decided on.
+- **No overbooking:** accepting locks the legs involved in leg-ID order, so two operators approving onto the same truck at the same moment can't overbook it or deadlock. A test races two threads to prove it.
 
 Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
 
@@ -113,16 +124,16 @@ simulator/   models, hub data, generator, CSV/JSON export, CLI
 detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
 api/         FastAPI app, the scenario store behind it, and static/ (the dashboard)
-db/          schema.sql (PostgreSQL + PostGIS), load.sql
-scripts/     load_db.sh, eval_detection.py, eval_recovery.py
+db/          migrations/, migration runner, repository, `python -m db` admin CLI
+scripts/     eval_detection.py, eval_recovery.py
 tests/       simulator, schema/loader/CSV cross-checks, detection, recovery, API
 docs/        DECISIONS.md
 ```
 
 ## Known limitations
 
-- `db/schema.sql` and `scripts/load_db.sh` have been run against PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) with seed 42. All constraints passed and reloading is idempotent. The pytest suite only cross-checks them statically; it does not start a database. The schema is applied only when the volume is first created, so after a schema change run `docker compose down -v` before `up`.
-- Detection, recovery and the API run in Python on scenario folders (CSV) or an in-memory scenario. They don't query Postgres yet, and plans are saved as CSV (CLI) or JSON (API), not in the database.
+- The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and dashboard need Postgres.
+- Detections aren't stored: they're recomputed (and cached) from the scans, which is cheap and keeps them consistent with the detector's code.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
 - The dashboard loads MapLibre from unpkg.com and the basemap from OpenStreetMap's tile servers, so it needs internet access. If tiles are slow or blocked, the data layers still draw over a plain background. OSM's tile servers are fine for light development use but not for production traffic.
 - The dashboard has no automated browser tests. The pytest suite checks that it's served and that plans carry routes; the interactions were checked by hand in a browser.

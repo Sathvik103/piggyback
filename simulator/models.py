@@ -39,6 +39,8 @@ PRIORITIES = ("EXPRESS", "STANDARD", "ECONOMY")
 @dataclass(frozen=True)
 class ScenarioConfig:
     seed: int = 42
+    # Wall-clock time of t=0 (ISO 8601). Every *_h field is hours after this.
+    start_at: str = "2026-11-02T00:00:00+05:30"
     n_shipments: int = 3000
     # Trips are scheduled up to here. It runs well past `now_h` so that recovery
     # can book onto later departures; every deadline falls before it.

@@ -11,7 +11,7 @@ Piggyback finds shipments that are stranded or misplaced in a hub-and-spoke line
 | Layer | Choice | Why |
 |---|---|---|
 | Simulator, engine | Python 3.11+, standard library only | Deterministic with one `random.Random(seed)`; no NumPy version drift in benchmarks |
-| Storage | PostgreSQL 16 + PostGIS 3.4 (`postgis/postgis:16-3.4`) | Relational timetable + geography for maps and distance queries |
+| Storage | PostgreSQL 16 + PostGIS 3.4 via psycopg 3 + psycopg-pool; numbered SQL migrations | System of record for scenarios, plans and decisions. Scenarios live side by side (keyed by `scenario_id`); capacity holds are a view over the decision log |
 | Optimizer (step 4) | OR-Tools CP-SAT (`ortools>=9.11,<10`) | Choosing options under shared leg capacity is a small integer program; CP-SAT proves optimality in under a second at default size |
 | API (step 6) | FastAPI + uvicorn, over scenario folders | Built. Typed request validation and free OpenAPI docs; file-backed so it runs without Docker |
 | Dashboard (step 7) | Plain HTML/CSS/JS + MapLibre GL 4.7.1, served by the API | Built. No build step or framework for one page; MapLibre for a GPU map with GeoJSON layers |
@@ -33,7 +33,9 @@ Out of scope: real carrier integrations, last-mile delivery, pricing, live OSRM 
 
 ## Information boundary
 
-Detection and recovery code may read: `hubs`, `lanes`, `corridors`, `trips`, `trip_legs`, `shipments`, `scan_events`, `disruptions`. It must never read the `sim_*` tables (`sim_truth`, `sim_trip_delays`) or `Scenario.truth` / `Scenario.trip_delays`. Those exist only to score step 2 and to replay recovery in step 5. In code, detection reads through `detection.OperatorView`, which has no truth fields. Its CSV loader skips the `sim_*` files, and a test checks this.
+Detection and recovery code may read: `hubs`, `lanes`, `corridors`, `trips`, `trip_legs`, `shipments`, `scan_events`, `disruptions`. It must never read the `sim_*` tables (`sim_truth`, `sim_trip_delays`) or `Scenario.truth` / `Scenario.trip_delays`. Those exist only to score step 2 and to replay recovery in step 5. In code, detection reads through `detection.OperatorView`, which has no truth fields. Its CSV loader skips the `sim_*` files, and a test checks this. In Postgres the same split holds: the repository's `view()` never reads `sim_*`, and only the API's `/evaluation/` routes call `truth()`.
+
+**Clock time.** Each scenario has a `start_at` (default 2026-11-02 00:00 IST). Every `*_h` field is hours after it; the API's summary also gives `now_at`.
 
 `scan_events` only holds scans with `recorded_h <= now`. `ts_h` is when the scan happened; `recorded_h` is when it reached the system. Planned future scans are not stored anywhere. They can be re-derived from `shipments.planned_legs`.
 

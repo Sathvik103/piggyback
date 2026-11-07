@@ -90,7 +90,11 @@ def ready_time(det: Detection, now: float) -> float:
 
 def generate_options(view: OperatorView, detections: list[Detection],
                      cfg: OptionsConfig = OptionsConfig(),
-                     network: Network | None = None) -> dict[str, list[RecoveryOption]]:
+                     network: Network | None = None,
+                     capacity: dict[str, tuple[float, float]] | None = None,
+                     ) -> dict[str, list[RecoveryOption]]:
+    """`capacity` (leg -> spare kg, m3) overrides the timetable's spare capacity,
+    e.g. with what is left after accepted recoveries took their share."""
     net = network or Network(view)
     hubs = {h.hub_id: h for h in view.hubs}
     ships = {s.shipment_id: s for s in view.shipments}
@@ -118,7 +122,10 @@ def generate_options(view: OperatorView, detections: list[Detection],
             add(MODE_LOCAL, (), (), ready, ready + DELIVERY_H, 0.0, "already at destination")
         else:
             def fits(e: EffLeg) -> bool:
-                return e.leg_id in own or (e.spare_kg >= s.weight_kg and e.spare_m3 >= s.volume_m3)
+                if e.leg_id in own:
+                    return True
+                kg, m3 = capacity[e.leg_id] if capacity is not None else (e.spare_kg, e.spare_m3)
+                return kg >= s.weight_kg and m3 >= s.volume_m3
 
             banned: list[str] = []
             seen: set[tuple[str, ...]] = set()

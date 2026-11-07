@@ -3,3 +3,5 @@ ortools>=9.11,<10
 fastapi>=0.110,<1
 uvicorn>=0.29,<1
 httpx>=0.27,<1
+psycopg[binary]>=3.2,<4
+psycopg-pool>=3.2,<4

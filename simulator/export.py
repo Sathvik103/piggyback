@@ -6,6 +6,7 @@ import csv
 import json
 from collections import Counter
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .models import (
@@ -78,7 +79,9 @@ def summary(sc: Scenario) -> dict:
     states = Counter(last_scan.get(s.shipment_id, "NOT_SCANNED") for s in sc.shipments)
     return {
         "seed": sc.config.seed,
+        "start_at": sc.config.start_at,
         "now_h": sc.now,
+        "now_at": at(sc.config.start_at, sc.now),
         "hubs": len(sc.hubs),
         "lanes": len(sc.lanes),
         "corridors": len(sc.corridors),
@@ -98,6 +101,11 @@ def summary(sc: Scenario) -> dict:
             sum(l.spare_kg for l in sc.legs)
             / sum(c.capacity_kg for c in _leg_corridors(sc)), 3),
     }
+
+
+def at(start_at: str, hours: float) -> str:
+    """Wall-clock ISO time `hours` after `start_at`, in start_at's own offset."""
+    return (datetime.fromisoformat(start_at) + timedelta(hours=hours)).isoformat(timespec="minutes")
 
 
 def _leg_corridors(sc: Scenario):

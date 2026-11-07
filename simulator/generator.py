@@ -13,6 +13,7 @@ import bisect
 import math
 import random
 from dataclasses import replace
+from datetime import datetime
 from typing import Optional
 
 from .hubs import (
@@ -506,6 +507,11 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
             raise ValueError(f"{name} must be in [0, 1]")
     if not 0.0 < cfg.now_h < cfg.horizon_h:
         raise ValueError("now_h must be inside the horizon")
+    try:
+        if datetime.fromisoformat(cfg.start_at).utcoffset() is None:
+            raise ValueError
+    except ValueError:
+        raise ValueError("start_at must be an ISO 8601 time with a UTC offset") from None
 
     rng = random.Random(seed)
     hubs = list(HUBS)

@@ -1,7 +1,7 @@
-"""Cross-checks between the simulator's CSVs, db/schema.sql and db/load.sql.
+"""Cross-checks between the simulator's exports and the database migrations.
 
-These cannot replace loading into a real Postgres, but they catch the usual
-drift: a renamed field, a reordered column, a table the loader forgot.
+These run without a database; tests/test_db.py covers a real Postgres. They catch
+the usual drift: a renamed field, a reordered column, a table nobody created.
 """
 
 import csv
@@ -11,31 +11,25 @@ from pathlib import Path
 
 import pytest
 
+from db.migrate import migrations
 from simulator import cli
 from simulator.export import TABLES, write_all
 from simulator.models import column_names
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-LOADER = (ROOT / "db" / "load.sql").read_text(encoding="utf-8")
-ALL_TABLES = ["scenario_meta", *TABLES]
+SCHEMA = "\n".join(p.read_text(encoding="utf-8") for _, p in migrations())
 
 
 def schema_columns() -> dict[str, list[str]]:
     out = {}
-    for name, body in re.findall(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\n\);", SCHEMA, re.S):
+    for name, body in re.findall(r"CREATE TABLE (\w+) \((.*?)\n\);", SCHEMA, re.S):
         cols = []
         for line in body.splitlines():
             word = line.strip().split(" ", 1)[0]
-            if re.fullmatch(r"[a-z_][a-z0-9_]*", word):  # skips CHECK/UNIQUE, comments, continuations
+            if re.fullmatch(r"[a-z_][a-z0-9_]*", word):  # skips CHECK/UNIQUE/PRIMARY, comments, continuations
                 cols.append(word)
         out[name] = cols
     return out
-
-
-def loader_columns() -> dict[str, list[str]]:
-    return {t: [c.strip() for c in cols.split(",")]
-            for t, cols in re.findall(r"^\\copy (\w+) \(([^)]*)\) FROM '\1\.csv'", LOADER, re.M)}
 
 
 @pytest.fixture(scope="module")
@@ -45,22 +39,21 @@ def out_dir(scenario, tmp_path_factory):
     return d
 
 
-def test_schema_has_every_table_with_csv_columns_first_in_order():
+def test_migrations_create_every_simulator_table_with_its_columns_in_order():
     schema = schema_columns()
-    assert set(schema) == set(ALL_TABLES)
+    assert set(TABLES) <= set(schema)
     for table, (cls, _) in TABLES.items():
         cols = column_names(cls)
-        assert schema[table][:len(cols)] == cols, table
-        # Anything after the CSV columns is derived in load.sql (PostGIS geometry).
-        assert all(c == "geom" for c in schema[table][len(cols):]), table
+        # scenario_id first, then the dataclass fields in order, then derived geometry.
+        assert schema[table][0] == "scenario_id", table
+        assert schema[table][1:len(cols) + 1] == cols, table
+        assert all(c == "geom" for c in schema[table][len(cols) + 1:]), table
+    assert {"scenarios", "plans", "plan_choices", "decisions"} <= set(schema)
 
 
-def test_loader_copies_every_table_with_matching_columns_in_fk_order():
-    loaded = loader_columns()
-    assert list(loaded) == ALL_TABLES  # TABLES is ordered so references load first
-    for table, (cls, _) in TABLES.items():
-        assert loaded[table] == column_names(cls)
-    assert re.search(r"TRUNCATE " + r",\s*".join(ALL_TABLES) + ";", LOADER)
+def test_plan_choices_store_every_recovery_option_field():
+    from recovery.options import RecoveryOption
+    assert schema_columns()["plan_choices"][2:] == column_names(RecoveryOption)
 
 
 def test_csv_headers_and_row_counts(scenario, out_dir):
@@ -88,11 +81,3 @@ def test_cli_writes_a_scenario(tmp_path, capsys):
     cli.main(["--seed", "5", "--out", str(tmp_path / "s5"), "--n-shipments", "150"])
     assert (tmp_path / "s5" / "shipments.csv").exists()
     assert '"shipments": 150' in capsys.readouterr().out
-
-
-def test_load_script_targets_mounted_paths():
-    script = (ROOT / "scripts" / "load_db.sh").read_text(encoding="utf-8")
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    assert "./data:/data" in compose and "./db:/db" in compose
-    assert "/docker-entrypoint-initdb.d/" in compose
-    assert "-f /db/load.sql" in script and "/data/" in script
