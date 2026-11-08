@@ -41,15 +41,18 @@ class EffLeg:
 
 
 class Network:
-    def __init__(self, view: OperatorView, trip_delays: Optional[dict[str, float]] = None):
-        """`trip_delays` overrides the observed delays; the replay passes the true ones."""
+    def __init__(self, view: OperatorView, trip_delays: Optional[dict[str, float]] = None,
+                 disruptions: bool = True):
+        """`trip_delays` overrides the observed delays (the replay passes the true ones;
+        `{}` means the published timetable). `disruptions=False` ignores known
+        disruptions. Both together give the delay-blind view a typical TMS plans on."""
         self.now = view.now
         delay = observed_trip_delays(view) if trip_delays is None else trip_delays
         lane_km = {l.lane_id: l.distance_km for l in view.lanes}
-        lane_delays = [d for d in view.disruptions if d.kind == DISRUPTION_LANE_DELAY]
-        breakdown = {d.trip_id: d.start_h for d in view.disruptions if d.kind == DISRUPTION_TRIP_BREAKDOWN}
-        self.closures = [(d.hub_id, d.start_h, d.end_h) for d in view.disruptions
-                         if d.kind == DISRUPTION_HUB_CLOSURE]
+        known = view.disruptions if disruptions else []
+        lane_delays = [d for d in known if d.kind == DISRUPTION_LANE_DELAY]
+        breakdown = {d.trip_id: d.start_h for d in known if d.kind == DISRUPTION_TRIP_BREAKDOWN}
+        self.closures = [(d.hub_id, d.start_h, d.end_h) for d in known if d.kind == DISRUPTION_HUB_CLOSURE]
 
         by_trip: dict[str, list] = {}
         for l in view.legs:

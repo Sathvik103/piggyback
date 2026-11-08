@@ -117,7 +117,7 @@ Penalty = cost + ₹250 × priority weight (EXPRESS 3, STANDARD 2, ECONOMY 1) ×
 
 `AT_RISK` parcels count as stranded only if they really miss their connection under the true delays. Failed and unrecovered parcels are charged 48 h late.
 
-**Results** (seeds 1–10). CP-SAT and greedy both get about 61–69% of stranded parcels home on time, against 0% for doing nothing, and cut the realized penalty by 4–6×. CP-SAT's realized penalty is 1% lower than greedy's at `capacity_tightness` 0.3, 5% lower at 0.6, and 12% lower at 0.9, where it also leaves 20% fewer parcels unrecovered. About 5% of plans fail in replay. The main causes are trips running later than observed, which breaks planned connections, and the occasional wrong hub from detection. A connection buffer for trips nobody has been seen on is the obvious next improvement.
+**Results.** See "Benchmark design" below and `results/REPORT.md`. About 5–6% of Piggyback's plans fail in replay. The main causes are trips running later than observed, which breaks planned connections, and the occasional wrong hub from detection. A connection buffer for trips nobody has been seen on is the obvious next improvement.
 
 ## Benchmark design
 
@@ -125,7 +125,19 @@ A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_dis
 
 - **Detection metrics**: precision, recall and F1 against `sim_truth`. Also the hub-location accuracy (`true_hub_id`) and recall per anomaly type.
 - **Recovery metrics**: share of stranded shipments recovered before their deadline, and priority-weighted hours late (EXPRESS 3, STANDARD 2, ECONOMY 1). Also incremental cost in INR, capacity used on piggybacked legs, and solve time.
-- **Default grid**: seeds 1–20 × `capacity_tightness ∈ {0.2, 0.5, 0.8}` × `anomaly_rate ∈ {0.02, 0.04, 0.08}`, all with `n_incidents=2` and `n_disruptions=8`. `scripts/eval_recovery.py` currently runs a smaller grid (seeds 1–N × tightness 0.3/0.6/0.9).
+- **Grid** (`python -m benchmark.run`): seeds 1–20 × `capacity_tightness ∈ {0.3, 0.6, 0.9}` × `anomaly_rate ∈ {0.02, 0.04, 0.08}` = 180 scenarios, all with `n_incidents=2` and `n_disruptions=8`. It runs in parallel processes in about 3 minutes.
+- **Policies.** Every policy gets the same detections (grace 2 h), so differences come from recovery alone.
+  - **Baselines:** do nothing; next service FCFS (published timetable, earliest service with room, in the order problems were seen, reactive); next service + a dedicated truck for any EXPRESS parcel that would be late.
+  - **Piggyback:** delay-aware network, proactive, CP-SAT.
+  - **Ablations:** greedy instead of CP-SAT; reactive; published timetable.
+- **Fairness.** Reactive policies get a second chance. An AT_RISK parcel they ignored, which really does miss its connection, is rebooked by their own rules 2 h after the late arrival, against the capacity left. The first version of the benchmark skipped this. It credited Piggyback with +20 pp on-time over next-service, of which +16 pp came from "being proactive". With the second chance the honest figure is +4.3 pp, and proactivity is worth nothing.
+- **Statistics.** Comparisons are paired per scenario. The report shows mean differences with 95% t-intervals, and calls a difference significant only if its interval excludes 0. A sensitivity table re-prices the same outcomes at ₹50–1000 per late hour.
+- **Findings** (full numbers in `results/REPORT.md` and the README):
+  - **vs next service FCFS:** −19.6% realized penalty, +4.3 pp on time, and half the failed recoveries.
+  - **vs the truck rule:** −41.2% penalty, though 4.7 pp fewer parcels on time, because it spends about 10× less.
+  - **Delay awareness carries most of the gain** (−18.2%).
+  - **CP-SAT over greedy:** −3.5% overall, −9.2% when capacity is tight.
+  - **Proactive rebooking:** +3.3% (it hurts).
 
 ## Calibration assumptions (not real-world data)
 

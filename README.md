@@ -8,13 +8,13 @@ A delay-aware shipment recovery engine. It finds stranded or misplaced shipments
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 66 tests (DB tests skip if Postgres is down)
+python -m pytest -q                                        # 74 tests (DB tests skip if Postgres is down)
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
 python -m recovery.cli data/scenario_42                    # plan_*.csv per solver + replayed KPIs
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
-python scripts/eval_recovery.py 10                         # recovery over seeds 1-10 x 3 tightness levels
+python -m benchmark.run                                    # head-to-head benchmark, 180 scenarios (~3 min) -> results/
 python -m uvicorn api.app:create_app --factory --port 8000 # dashboard at http://localhost:8000/, API docs at /docs
 ```
 
@@ -55,19 +55,33 @@ Over seeds 1–30 with default settings: precision 0.918, recall 0.965, F1 0.941
 2. **Optimizer** (`recovery.solve_cpsat`): picks one option per shipment to minimize cost + ₹250 × priority weight (EXPRESS 3, STANDARD 2, ECONOMY 1) × hours late. Every leg must stay within its spare capacity. It uses OR-Tools CP-SAT and proves the optimum in well under a second at default tightness. The baselines are `solve_greedy` (most to lose goes first) and `solve_none`.
 3. **Replay** (`recovery.replay`): runs a plan against the truth. A plan fails if the parcel isn't at the hub the plan starts from, or if a trip ran later than anyone had observed and a connection breaks.
 
-Totals over seeds 1–10, replayed against truth:
+## Benchmark: Piggyback vs what carriers do today
 
-| `capacity_tightness` | Solver | Stranded on time | Unrecovered | Realized penalty |
+`python -m benchmark.run` runs 180 simulated scenarios: seeds 1–20 × capacity tightness 0.3/0.6/0.9 × anomaly rate 0.02/0.04/0.08. On each one it runs every recovery policy below, replays every plan against the ground truth, and writes [results/REPORT.md](results/REPORT.md) with paired comparisons and 95% confidence intervals. All policies get the same detections, so the comparison isolates *recovery*.
+
+**Baselines:**
+- **Next service, FCFS:** a typical TMS auto-rebook. It books the earliest service with room on the published timetable, in the order problems appear.
+- **Next service + truck for late EXPRESS:** the same, plus a control-tower rule of thumb.
+- **Do nothing.**
+
+Both next-service baselines are reactive, but they still rebook a parcel when it strands later.
+
+**Results**, Piggyback minus baseline on the same scenarios:
+
+| Piggyback vs | Δ stranded on time | Δ realized penalty¹ | Failed recoveries | Lower penalty in |
 |---|---|---|---|---|
-| 0.3 | CP-SAT | 68.7% | 81 | ₹95.5 lakh |
-| 0.3 | greedy | 68.5% | 83 | ₹96.5 lakh |
-| 0.6 | CP-SAT | 69.2% | 133 | ₹122.9 lakh |
-| 0.6 | greedy | 68.2% | 139 | ₹129.1 lakh |
-| 0.9 | CP-SAT | 63.2% | 278 | ₹145.3 lakh |
-| 0.9 | greedy | 60.9% | 347 | ₹164.4 lakh |
-| any | do nothing | 0% | all | ₹570–650 lakh |
+| Next service, FCFS | **+4.3 pp** (±0.7) | **−19.6%** (±2.8) | **5.6% vs 10.7%** | 159 / 180 |
+| Next service + truck for late EXPRESS | −4.7 pp (±0.8) | **−41.2%** (±2.1) | 5.6% vs 9.5% | 178 / 180 |
+| Do nothing | +68.2 pp | −81.9% | — | 180 / 180 |
 
-The tighter the spare capacity, the more the optimizer gains over greedy (12% lower penalty at 0.9).
+¹ Money spent + ₹250 × priority weight × hours late. Against next-service, the win holds whatever a late hour is worth, from ₹50 to ₹1000 (−8.5% to −22.1%). The truck rule gets more parcels on time by spending ₹9.3 lakh per scenario on trucks, about 10× Piggyback's spend.
+
+**Where the gain comes from** (ablations, each removing one ingredient):
+- **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −18.2% penalty and halves failed recoveries.
+- **The CP-SAT optimizer adds −3.5% overall.** That's about zero when trucks have room, and −9.2% when capacity is tight (0.9).
+- **Proactive rebooking of at-risk parcels doesn't pay** (+3.3% penalty). It reserves capacity on a prediction that waiting would confirm more cheaply. At-risk flags stay useful as early warnings, but acting on them isn't what wins.
+
+These are results on Piggyback's own simulator. The benchmark is built to be fair: baselines get a second chance at parcels that strand later, and every number is reproducible from its seed. It is not evidence from a real network.
 
 ## API
 
@@ -125,7 +139,9 @@ detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
 api/         FastAPI app, the scenario store behind it, and static/ (the dashboard)
 db/          migrations/, migration runner, repository, `python -m db` admin CLI
-scripts/     eval_detection.py, eval_recovery.py
+benchmark/   baseline + ablation policies, grid runner, report
+results/     benchmark.csv + REPORT.md from the last full run
+scripts/     eval_detection.py
 tests/       simulator, schema/loader/CSV cross-checks, detection, recovery, API
 docs/        DECISIONS.md
 ```
