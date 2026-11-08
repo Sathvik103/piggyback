@@ -54,6 +54,8 @@ class PlanCreate(BaseModel):
     solver: Literal["cpsat", "greedy", "none"] = "cpsat"
     grace_h: float = Field(DEFAULT_GRACE_H, ge=0.0, le=24.0)
     time_limit_s: float = Field(10.0, gt=0.0, le=60.0)
+    include_at_risk: bool = Field(False, description="Also rebook AT_RISK parcels now. Off by default: the "
+                                  "benchmark found acting early doesn't pay (see docs/DECISIONS.md).")
 
 
 class DecisionCreate(BaseModel):
@@ -230,10 +232,11 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
 
     @app.post("/scenarios/{sid}/plans", status_code=201)
     def create_plan(sid: str, body: PlanCreate):
-        """Plan every flagged shipment without a decision, against capacity still free."""
+        """Plan every stranded shipment without a decision (AT_RISK too if asked), against
+        capacity still free."""
         s = store()
         s.check(sid)
-        return s.create_plan(sid, body.solver, body.grace_h, body.time_limit_s)
+        return s.create_plan(sid, body.solver, body.grace_h, body.time_limit_s, body.include_at_risk)
 
     @app.get("/scenarios/{sid}/plans")
     def list_plans(sid: str):

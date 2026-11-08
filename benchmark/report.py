@@ -197,8 +197,8 @@ def write_report(csv_path: Path, out: Path | None = None) -> Path:
         "",
         "## Where the gain comes from (ablations)",
         "",
-        "Each ablation removes one ingredient from Piggyback. A positive Δ on time and a negative Δ penalty "
-        "mean that ingredient helps.",
+        "Each ablation changes one ingredient of Piggyback (− removes it, + adds it). A positive Δ on time "
+        "and a negative Δ penalty mean Piggyback's choice is the better one.",
         "",
         *paired_table(rows, ablations),
         "",

@@ -13,6 +13,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from detection import DetectorConfig, OperatorView, detect
+from detection.detector import KIND_AT_RISK
 from detection.view import read_table
 
 from .evaluate import replay
@@ -49,10 +50,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--solver", default="all", choices=["all", *SOLVERS])
     p.add_argument("--grace", type=float, default=DetectorConfig().grace_h)
     p.add_argument("--time-limit", type=float, default=10.0, help="CP-SAT seconds")
+    p.add_argument("--include-at-risk", action="store_true",
+                   help="also rebook AT_RISK parcels now (off: the benchmark found it doesn't pay)")
     a = p.parse_args(argv)
 
     view = OperatorView.from_csv_dir(a.scenario)
     dets = detect(view, DetectorConfig(grace_h=a.grace))
+    if not a.include_at_risk:
+        dets = [d for d in dets if d.kind != KIND_AT_RISK]
     cfg = OptionsConfig()
     options = generate_options(view, dets, cfg)
     cap = leg_capacity(view)

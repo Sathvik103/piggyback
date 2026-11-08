@@ -15,12 +15,15 @@ Baselines model what carriers commonly do today:
 - next_service_express_truck: the same, plus the control-tower rule of thumb
   "send a dedicated truck if an EXPRESS parcel would be late".
 
-Piggyback and its ablations each switch off one ingredient:
+Piggyback and its ablations each change one ingredient:
 
-- piggyback: delay- and disruption-aware network, proactive (acts on AT_RISK
-  too), CP-SAT over all parcels and options jointly.
+- piggyback: delay- and disruption-aware network, CP-SAT over all stranded
+  parcels and options jointly, and it acts once a parcel is stranded (AT_RISK
+  parcels are watched, then rebooked if they really strand).
 - piggyback_greedy: same options, greedy assignment instead of the optimizer.
-- piggyback_reactive: ignores AT_RISK (acts only once a parcel is stranded).
+- piggyback_proactive: also rebooks AT_RISK parcels right away. This was the
+  original default; the benchmark showed it doesn't pay, so it became an
+  ablation (see docs/DECISIONS.md).
 - piggyback_blind: plans on the published timetable, like the baselines.
 """
 
@@ -93,7 +96,7 @@ def next_service(view: OperatorView, dets: list[Detection], express_truck: bool 
     return _plan("next_service_express_truck" if express_truck else "next_service", chosen, t0)
 
 
-def piggyback(view: OperatorView, dets: list[Detection], aware: bool = True, proactive: bool = True,
+def piggyback(view: OperatorView, dets: list[Detection], aware: bool = True, proactive: bool = False,
               optimizer: str = "cpsat") -> Plan:
     t0 = time.perf_counter()
     net = Network(view) if aware else _blind(view)
@@ -114,10 +117,13 @@ def reactive_followup(view: OperatorView, dets: list[Detection], plan: Plan, tru
     the miss shows up in scans: `grace_h` after the late arrival, from the transfer
     hub, against the capacity its main plan left.
 
+    `how`: "next_service" (published timetable, first service with room),
+    "best" (observed delays, cheapest option by penalty) or "best_blind"
+    (published timetable, cheapest option by penalty).
+
     This reads the true trip delays, but only to know *when* a reactive policy would
     notice: the future it would actually live through. The rebooking itself uses
-    only the policy's own view (published timetable for next_service, observed
-    delays for the Piggyback ablation)."""
+    only the policy's own view."""
     t0 = time.perf_counter()
     legs = {l.leg_id: l for l in view.legs}
     ships = {s.shipment_id: s for s in view.shipments}
@@ -134,15 +140,17 @@ def reactive_followup(view: OperatorView, dets: list[Detection], plan: Plan, tru
         _, miss = actual_scans(s, [legs[i] for i in s.planned_legs.split(";")], true_delays)
         if miss is not None:  # never strands -> a reactive policy never acts, rightly
             events.append((miss[1], d.shipment_id, d, miss[0]))
-    blind = how == "next_service"
-    net = _blind(view) if blind else Network(view)
-    cfg = OptionsConfig(k_piggyback=1) if blind else OptionsConfig()
+    if how not in ("next_service", "best", "best_blind"):
+        raise ValueError(f"unknown follow-up {how!r}")
+    first_service = how == "next_service"
+    net = Network(view) if how == "best" else _blind(view)
+    cfg = OptionsConfig(k_piggyback=1) if first_service else OptionsConfig()
     chosen = dict(plan.chosen)
     for t, sid, d, hub in sorted(events):
         later = replace(view, now=round(t + grace_h, 2))
         det = replace(d, kind=KIND_MISSED_CONNECTION, suspected_hub=hub)
         opts = generate_options(later, [det], cfg, network=net, capacity=left)[sid]
-        if blind:
+        if first_service:
             first = {}
             for o in opts:
                 first.setdefault(o.mode, o)
@@ -163,12 +171,12 @@ POLICIES: list[Policy] = [
            followup="next_service"),
     Policy("next_service_express_truck", "baseline", "Next service + truck for late EXPRESS",
            lambda v, d: next_service(v, d, express_truck=True), followup="next_service"),
-    Policy("piggyback", "piggyback", "Piggyback (aware, proactive, CP-SAT)", piggyback),
+    Policy("piggyback", "piggyback", "Piggyback (delay-aware, CP-SAT)", piggyback, followup="best"),
     Policy("piggyback_greedy", "ablation", "− optimizer (greedy)",
-           lambda v, d: piggyback(v, d, optimizer="greedy")),
-    Policy("piggyback_reactive", "ablation", "− proactive (acts once stranded)",
-           lambda v, d: piggyback(v, d, proactive=False), followup="best"),
+           lambda v, d: piggyback(v, d, optimizer="greedy"), followup="best"),
     Policy("piggyback_blind", "ablation", "− delay awareness (published timetable)",
-           lambda v, d: piggyback(v, d, aware=False)),
+           lambda v, d: piggyback(v, d, aware=False), followup="best_blind"),
+    Policy("piggyback_proactive", "ablation", "+ proactive (rebooks AT_RISK early)",
+           lambda v, d: piggyback(v, d, proactive=True)),
 ]
 BY_NAME = {p.name: p for p in POLICIES}

@@ -53,11 +53,12 @@ def test_express_truck_rule_only_trucks_express(world):
 def test_piggyback_variants(world):
     _, view, dets = world
     cap = leg_capacity(view)
-    full = piggyback(view, dets)
-    reactive = piggyback(view, dets, proactive=False)
-    assert set(reactive.chosen) == {d.shipment_id for d in dets if d.kind != KIND_AT_RISK}
-    assert set(full.chosen) == {d.shipment_id for d in dets}
-    for p in (full, reactive, piggyback(view, dets, aware=False), piggyback(view, dets, optimizer="greedy")):
+    default = piggyback(view, dets)
+    proactive = piggyback(view, dets, proactive=True)
+    assert set(default.chosen) == {d.shipment_id for d in dets if d.kind != KIND_AT_RISK}
+    assert set(proactive.chosen) == {d.shipment_id for d in dets}
+    assert BY_NAME["piggyback"].followup == "best" and BY_NAME["piggyback_proactive"].followup is None
+    for p in (default, proactive, piggyback(view, dets, aware=False), piggyback(view, dets, optimizer="greedy")):
         assert capacity_violations(p, cap) == []
 
 

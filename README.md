@@ -8,7 +8,7 @@ A delay-aware shipment recovery engine. It finds stranded or misplaced shipments
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 74 tests (DB tests skip if Postgres is down)
+python -m pytest -q                                        # 75 tests (DB tests skip if Postgres is down)
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
@@ -66,20 +66,22 @@ Over seeds 1–30 with default settings: precision 0.918, recall 0.965, F1 0.941
 
 Both next-service baselines are reactive, but they still rebook a parcel when it strands later.
 
-**Results**, Piggyback minus baseline on the same scenarios:
+**Results**, Piggyback minus baseline on the same scenarios (± is a 95% confidence interval):
 
 | Piggyback vs | Δ stranded on time | Δ realized penalty¹ | Failed recoveries | Lower penalty in |
 |---|---|---|---|---|
-| Next service, FCFS | **+4.3 pp** (±0.7) | **−19.6%** (±2.8) | **5.6% vs 10.7%** | 159 / 180 |
-| Next service + truck for late EXPRESS | −4.7 pp (±0.8) | **−41.2%** (±2.1) | 5.6% vs 9.5% | 178 / 180 |
-| Do nothing | +68.2 pp | −81.9% | — | 180 / 180 |
+| Next service, FCFS | **+4.5 pp** (±0.6) | **−22.0%** (±2.2) | **5.0% vs 10.7%** | 170 / 180 |
+| Next service + truck for late EXPRESS | −4.5 pp (±0.7) | **−42.8%** (±1.9) | 5.0% vs 9.5% | 180 / 180 |
+| Do nothing | +68.4 pp | −82.3% | — | 180 / 180 |
 
-¹ Money spent + ₹250 × priority weight × hours late. Against next-service, the win holds whatever a late hour is worth, from ₹50 to ₹1000 (−8.5% to −22.1%). The truck rule gets more parcels on time by spending ₹9.3 lakh per scenario on trucks, about 10× Piggyback's spend.
+¹ Money spent + ₹250 × priority weight × hours late. Against next-service, the win holds whatever a late hour is worth, from ₹50 to ₹1000 (−10.5% to −24.6%). The truck rule gets more parcels on time by spending ₹9.3 lakh per scenario on trucks, about 10× Piggyback's spend.
 
-**Where the gain comes from** (ablations, each removing one ingredient):
-- **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −18.2% penalty and halves failed recoveries.
-- **The CP-SAT optimizer adds −3.5% overall.** That's about zero when trucks have room, and −9.2% when capacity is tight (0.9).
-- **Proactive rebooking of at-risk parcels doesn't pay** (+3.3% penalty). It reserves capacity on a prediction that waiting would confirm more cheaply. At-risk flags stay useful as early warnings, but acting on them isn't what wins.
+**Where the gain comes from** (ablations, each changing one ingredient):
+- **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −18.1% penalty and halves failed recoveries.
+- **The CP-SAT optimizer adds −2.7% overall.** That's about zero when trucks have room, and −6.0% when capacity is tight (0.9).
+- **Acting early on at-risk parcels doesn't pay.** Piggyback watches them and rebooks only once they really strand. Rebooking them early instead is no better (−1.6% ± 1.6 in favour of waiting), and when trucks have room it is measurably worse.
+
+**Disclosure:** Piggyback originally rebooked at-risk parcels proactively. The benchmark's own ablation showed that didn't pay, so the default was switched to wait-then-act and the benchmark re-run. The numbers above are for the shipped default. Proactive rebooking is still available as `include_at_risk` on the API and `--include-at-risk` on the CLI.
 
 These are results on Piggyback's own simulator. The benchmark is built to be fair: baselines get a second chance at parcels that strand later, and every number is reproducible from its seed. It is not evidence from a real network.
 
@@ -96,7 +98,7 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 | `GET /scenarios/{id}/detections` | Flags, filterable by `kind`, `hub` and `priority`, with `grace_h`, paging and counts |
 | `GET /scenarios/{id}/shipments/{sid}` | A shipment's booking, visible scans, detection and plan choices |
 | `GET /scenarios/{id}/hubs/{hub}` | Parcels stuck at a hub, and departures with spare room in the next `window_h` |
-| `POST /scenarios/{id}/plans` | Run detection → options → `cpsat` / `greedy` / `none`; returns a summary |
+| `POST /scenarios/{id}/plans` | Run detection → options → `cpsat` / `greedy` / `none` for stranded parcels (`include_at_risk` adds AT_RISK ones); returns a summary |
 | `GET /scenarios/{id}/plans[/{plan_id}]` | Saved plans; one plan's choices, filterable by `mode` |
 | `GET /scenarios/{id}/shipments/{sid}/options` | Live recovery options for a flagged shipment, against capacity still free |
 | `POST /scenarios/{id}/decisions` | `ACCEPT` a plan's choice or a live option, `DISMISS` a false flag, or `REVOKE` the decision in force; 409 if the capacity is gone |

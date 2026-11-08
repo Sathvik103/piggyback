@@ -15,6 +15,7 @@ from dataclasses import replace
 from db import CapacityConflict, Repo
 from db.repo import ACCEPT, DISMISS, REVOKE, option_from_json
 from detection import Detection, DetectorConfig, OperatorView, detect
+from detection.detector import KIND_AT_RISK
 from recovery import SOLVERS, Network, OptionsConfig, Plan, RecoveryOption, generate_options
 from recovery.options import MODE_NONE
 from simulator import generate_scenario
@@ -123,11 +124,15 @@ class ScenarioStore:
 
     # ------------------------------------------------------------------ plans
 
-    def create_plan(self, sid: str, solver: str, grace_h: float, time_limit_s: float) -> dict:
-        """Plan every flagged shipment nobody has decided on yet, against the capacity
-        accepted recoveries have left."""
+    def create_plan(self, sid: str, solver: str, grace_h: float, time_limit_s: float,
+                    include_at_risk: bool = False) -> dict:
+        """Plan every stranded shipment nobody has decided on yet, against the capacity
+        accepted recoveries have left. AT_RISK parcels are left to watch unless asked:
+        the benchmark found rebooking them early costs more than waiting."""
         view = self.view(sid)
         dets = self.open_detections(sid, grace_h)
+        if not include_at_risk:  # watch AT_RISK parcels; plan them once they really strand
+            dets = [d for d in dets if d.kind != KIND_AT_RISK]
         cap = self.repo.residual_capacity(sid, view)
         options = generate_options(view, dets, OptionsConfig(), network=self.network(sid), capacity=cap)
         solve = SOLVERS[solver]

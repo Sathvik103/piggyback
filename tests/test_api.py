@@ -158,6 +158,17 @@ def test_decision_workflow(client):
     assert client.get("/scenarios/s7/decisions").json() == []
 
 
+def test_plans_watch_at_risk_parcels_unless_asked(client):
+    at_risk = {d["shipment_id"] for d in _flagged(client, kind="AT_RISK", status="open")["items"]}
+    assert at_risk, "scenario s7 should have AT_RISK parcels"
+    default = client.post("/scenarios/s7/plans", json={"solver": "greedy"}).json()
+    planned = {c["shipment_id"] for c in client.get(f"/scenarios/s7/plans/{default['plan_id']}").json()["choices"]}
+    assert not planned & at_risk
+    eager = client.post("/scenarios/s7/plans", json={"solver": "greedy", "include_at_risk": True}).json()
+    planned = {c["shipment_id"] for c in client.get(f"/scenarios/s7/plans/{eager['plan_id']}").json()["choices"]}
+    assert at_risk <= planned
+
+
 def test_detection_evaluation_reads_truth(client):
     s = client.get("/scenarios/s7/evaluation/detections").json()
     assert 0.0 < s["precision"] <= 1.0 and 0.0 < s["recall"] <= 1.0
