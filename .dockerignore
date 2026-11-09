@@ -5,6 +5,7 @@
 .ruff_cache
 **/__pycache__
 data
-results
 docs
 tests
+web/node_modules
+api/static

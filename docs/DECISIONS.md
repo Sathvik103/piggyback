@@ -14,7 +14,7 @@ Piggyback finds shipments that are stranded or misplaced in a hub-and-spoke line
 | Storage | PostgreSQL 16 + PostGIS 3.4 via psycopg 3 + psycopg-pool; numbered SQL migrations | System of record for scenarios, plans and decisions. Scenarios live side by side (keyed by `scenario_id`); capacity holds are a view over the decision log |
 | Optimizer (step 4) | OR-Tools CP-SAT (`ortools>=9.11,<10`) | Choosing options under shared leg capacity is a small integer program; CP-SAT proves optimality in under a second at default size |
 | API (step 6) | FastAPI + uvicorn, over scenario folders | Built. Typed request validation and free OpenAPI docs; file-backed so it runs without Docker |
-| Dashboard (step 7) | Plain HTML/CSS/JS + MapLibre GL 4.7.1, served by the API | Built. No build step or framework for one page; MapLibre for a GPU map with GeoJSON layers |
+| Web app (step 7) | React 19 + TypeScript, Vite, Tailwind + shadcn/ui, TanStack Query, MapLibre GL 6; served by the API at `/app/` | Rebuilt from a one-page dashboard into an operator console after design review. The queue and recovery-card workflow comes first. No basemap tiles: works offline and avoids contested borders |
 | Tests | pytest | |
 
 Times are stored as **hours since scenario start** (floats), not timestamps. This keeps the simulator, SQL and the optimizer in the same unit. The dashboard can map them to wall-clock time.

@@ -2,7 +2,7 @@
 
 A delay-aware shipment recovery engine. It finds stranded or misplaced shipments and recovers them by loading them onto trips that are already scheduled and have spare capacity. See `docs/DECISIONS.md` for the stack, scope and benchmark design.
 
-**Status:** all 7 steps are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark, an HTTP API and a map dashboard.
+**Status:** all 7 steps are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark, an HTTP API and an operator web app.
 
 ## Quick start
 
@@ -17,14 +17,15 @@ python -m recovery.cli data/scenario_42                    # plan_*.csv per solv
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
 python -m benchmark.run                                    # head-to-head benchmark, 180 scenarios (~3 min) -> results/
 python -m benchmark.run --stress                           # same contest under harder conditions -> results/ROBUSTNESS.md
-python -m uvicorn api.app:create_app --factory --port 8000 # dashboard at http://localhost:8000/, API docs at /docs
+(cd web && npm ci && npm run build)                        # build the web app into api/static
+python -m uvicorn api.app:create_app --factory --port 8000 # web app at http://localhost:8000/, API docs at /docs
 ```
 
 Database (needs Docker running; the API needs it, the CLIs above don't):
 
 ```bash
 docker compose up -d db                      # Postgres 16 + PostGIS on localhost:5433
-docker compose --profile app up -d --build    # ...plus the API + dashboard container on :8000
+docker compose --profile app up -d --build    # ...plus the API + web app container on :8000
 python -m db migrate                         # apply db/migrations (the API also does this on start)
 python -m db load data/scenario_42           # load a simulator.cli folder, or:
 python -m db seed scenario_7 --seed 7        # generate straight into Postgres
@@ -131,25 +132,22 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 
 Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
 
-## Dashboard
+## Web app
 
-The API serves it at `/dashboard/` (and `/` redirects there). It's one page of plain HTML, CSS and JavaScript with a MapLibre map, so there's no build step.
+`web/` is a React 19 + TypeScript app built with Vite, Tailwind and shadcn/ui, using TanStack Query for data and MapLibre for maps. `npm run build` writes it to `api/static`, and the API serves it at `/app/` (`/` redirects there). For development, `npm run dev` in `web/` proxies API calls to `localhost:8000`.
 
-- **Map**:
-  - hubs sized by how many parcels are flagged there
-  - the selected plan's piggyback hops in blue, wider when more parcels ride them
-  - dedicated trucks dashed in orange
-  - lane delays dashed, and closed hubs ringed, in the reserved status colors
-  - hover any of these for details
-- **Header**: pick the scenario and plan, change the detection grace period, choose a solver and press **Run plan**.
-- **KPIs**: parcels flagged, at risk, hubs affected, and what the plan does (piggyback, dedicated, left) at what cost.
-- **Detections**: a chart of flags by kind (click a bar to filter) and a table, most urgent first.
-- **Drill-downs**:
-  - **Hub:** the parcels flagged there and its departures with spare room in the next 24 h.
-  - **Shipment:** its booking, visible scans (late uploads marked), the detection evidence and its plan choice. Its booked route (dotted) and recovery route (bold) are drawn on the map.
-- **Show replay vs truth**: an opt-in row, drawn with dashed borders, showing detection precision and recall and the plan's on-time rate, failures and realized penalty. These numbers come from the `/evaluation/` routes, so an operator view never shows them by default.
+- **Queue** (home): the operator's work list. Flagged parcels are sorted by how soon they're due, and can be filtered by priority and kind, and split into open, watching (at risk) and decided. The recovery card shows:
+  - what happened, with the detector's evidence and recent scans
+  - the plan's recommendation and the live alternatives, each with its arrival against the deadline, its cost, and how full the fullest truck gets after loading
+  - a one-line reason for the recommendation: the lowest money spent plus lateness, compared with the fastest alternative
 
-Light and dark mode follow the system setting, and each has its own palette tones.
+  Operators can **accept** it, **pick an alternative**, or **dismiss** a false alarm. If another accepted recovery took the space first, the API returns 409 and the card refreshes its options. A mini map shows the original booking (dotted) and the recovery (bold). Keyboard: J/K move, A accept, D dismiss, 1–9 pick an option.
+- **Network:** the full lane map, with hubs sized by parcels needing a decision and the latest plan's piggyback hops (width = parcels). Dedicated trucks are dashed, lane delays and hub closures use the reserved status colours with icons, and clicking a hub lists its next 24 h of departures with free capacity.
+- **Plans:** run CP-SAT, greedy or do-nothing, optionally including at-risk parcels. Browse saved plans and their choices, and read the full decision log. A dashed "lab only" panel replays a plan against the ground truth.
+- **Benchmark:** the head-to-head results from `/benchmark`: the headline with its confidence interval, the stress plot, where the gain comes from, all policies, results by capacity tightness, and the method.
+- **Lab:** the scenario list; generating new ones (including the stress conditions); and detection precision and recall against the truth.
+
+Times show in IST, relative to each scenario's simulated "now". Light and dark themes are both supported. Only the plan replay and detection scoring read ground truth, and both are opt-in and visibly marked as lab features. The map draws the lane network without third-party basemap tiles, so it works offline and avoids drawing contested borders.
 
 ## Layout
 
@@ -157,7 +155,8 @@ Light and dark mode follow the system setting, and each has its own palette tone
 simulator/   models, hub data, generator, CSV/JSON export, CLI
 detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
-api/         FastAPI app, the scenario store behind it, and static/ (the dashboard)
+api/         FastAPI app and the scenario store behind it; serves the built web app from static/
+web/         React + TypeScript web app (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre)
 db/          migrations/, migration runner, repository, `python -m db` admin CLI
 benchmark/   baseline + ablation policies, grid runner, report
 results/     benchmark.csv + REPORT.md, stress.csv + ROBUSTNESS.md from the last full runs
@@ -169,11 +168,11 @@ docs/        DECISIONS.md
 
 ## Known limitations
 
-- The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and dashboard need Postgres.
+- The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and web app need Postgres.
 - Detections aren't stored: they're recomputed (and cached) from the scans, which is cheap and keeps them consistent with the detector's code.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
-- The dashboard loads MapLibre from unpkg.com and the basemap from OpenStreetMap's tile servers, so it needs internet access. If tiles are slow or blocked, the data layers still draw over a plain background. OSM's tile servers are fine for light development use but not for production traffic.
-- The dashboard has no automated browser tests. The pytest suite checks that it's served and that plans carry routes; the interactions were checked by hand in a browser.
+- The web app has no automated browser tests yet. CI lints, type-checks and builds it, and the pytest suite checks that it's served. The queue, decisions, map and benchmark pages were checked by hand in a browser.
+- There's no login: decisions are recorded as "operator". It's a local, single-user tool for now.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.
 - Road times are haversine × 1.3 at 45 km/h until an OSRM matrix replaces them. Vehicle costs and the ₹250 value of a late hour are assumed figures. Spare capacity is sampled rather than derived from real loads. The calibration numbers in `docs/DECISIONS.md` describe these assumptions, not real-world carriers.

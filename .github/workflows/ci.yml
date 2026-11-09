@@ -32,13 +32,24 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web app (lint, type-check, build)
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          npm run build
       - name: Install
         run: pip install -r requirements.txt ruff
       - name: Lint
         run: ruff check .
       - name: Migrate
         run: python -m db migrate
-      - name: Tests (incl. Postgres, concurrency and API)
+      - name: Tests (incl. Postgres, concurrency, API and the served web app)
         run: pytest
       - name: Benchmark smoke run
         run: python -m benchmark.run --quick --workers 2 --out /tmp/bench/quick.csv

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from db import CapacityConflict, Repo
 from db.repo import ACCEPT, DISMISS, REVOKE, option_from_json
@@ -46,6 +46,16 @@ def plan_no(plan_id: str) -> int:
     return int(m.group(1))
 
 
+@dataclass(frozen=True)
+class RouteContext:
+    """What option rendering needs: legs by id, each shipment's destination, each leg's
+    truck capacity (kg, m3) and the capacity still free on it right now."""
+    legs: dict
+    dest: dict[str, str]
+    totals: dict[str, tuple[float, float]]
+    free: dict[str, tuple[float, float]]
+
+
 class ScenarioStore:
     def __init__(self, repo: Repo):
         self.repo = repo
@@ -53,6 +63,7 @@ class ScenarioStore:
         self._views: dict[str, OperatorView] = {}
         self._networks: dict[str, Network] = {}
         self._detections: dict[tuple[str, float], list[Detection]] = {}
+        self._totals: dict[str, dict[str, tuple[float, float]]] = {}
 
     # ------------------------------------------------------------------ scenarios
 
@@ -84,6 +95,26 @@ class ScenarioStore:
                     raise NotFound(sid)
                 self._views[sid] = v
             return self._views[sid]
+
+    def route_context(self, sid: str, free_for: str | None = None) -> RouteContext:
+        """`free_for`: count that shipment's own accepted hold as free (its live options
+        are priced as if it gave its space back)."""
+        view = self.view(sid)
+        with self._lock:
+            if sid not in self._totals:
+                corridor = {c.corridor_id: c for c in view.corridors}
+                trip = {t.trip_id: corridor[t.corridor_id] for t in view.trips}
+                self._totals[sid] = {l.leg_id: (trip[l.trip_id].capacity_kg, trip[l.trip_id].capacity_m3)
+                                     for l in view.legs}
+        free = self.repo.residual_capacity(sid, view)
+        mine = self.decisions(sid).get(free_for) if free_for else None
+        if mine and mine["action"] == ACCEPT:
+            o = mine["option"]
+            for leg in o["capacity_legs"]:
+                kg, m3 = free[leg]
+                free[leg] = (kg + o["weight_kg"], m3 + o["volume_m3"])
+        return RouteContext({l.leg_id: l for l in view.legs}, {s.shipment_id: s.dest_hub for s in view.shipments},
+                            self._totals[sid], free)
 
     def network(self, sid: str) -> Network:
         with self._lock:

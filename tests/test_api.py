@@ -169,13 +169,47 @@ def test_plans_watch_at_risk_parcels_unless_asked(client):
     assert at_risk <= planned
 
 
+def test_options_report_truck_load_after_booking(client):
+    sid = next(d["shipment_id"] for d in _flagged(client, status="open")["items"] if d["kind"] != "AT_RISK")
+    opts = client.get(f"/scenarios/s7/shipments/{sid}/options").json()
+    for o in opts:
+        if o["capacity_legs"]:
+            assert 0 < o["load_after_pct"] <= 100.0 + 1e-6
+        else:
+            assert o["load_after_pct"] is None
+
+
+def test_decision_history_keeps_every_row(client):
+    sid = next(d["shipment_id"] for d in _flagged(client, status="open")["items"])
+    client.post("/scenarios/s7/decisions", json={"shipment_id": sid, "action": "DISMISS"})
+    client.post("/scenarios/s7/decisions", json={"shipment_id": sid, "action": "REVOKE"})
+    history = [d for d in client.get("/scenarios/s7/decisions", params={"history": True}).json()
+               if d["shipment_id"] == sid]
+    assert [d["action"] for d in history][-2:] == ["DISMISS", "REVOKE"]
+    assert sid not in {d["shipment_id"] for d in client.get("/scenarios/s7/decisions").json()}
+
+
+def test_benchmark_summary(client):
+    b = client.get("/benchmark").json()
+    assert b["hero"] == "piggyback" and b["available"]
+    vs = b["versus"]["next_service"]
+    assert vs["n"] == b["meta"]["scenarios"] and vs["penalty_pct"]["significant"]
+    assert {p["name"] for p in b["policies"]} >= {"piggyback", "next_service"}
+    assert b["robustness"] and all("vs_next_service" in r for r in b["robustness"])
+
+
 def test_detection_evaluation_reads_truth(client):
     s = client.get("/scenarios/s7/evaluation/detections").json()
     assert 0.0 < s["precision"] <= 1.0 and 0.0 < s["recall"] <= 1.0
 
 
-def test_dashboard_is_served(client):
+def test_web_app_is_served_when_built(client):
+    from api.app import STATIC_DIR
     r = client.get("/", follow_redirects=False)
-    assert r.status_code in (302, 307) and r.headers["location"] == "/dashboard/"
-    page = client.get("/dashboard/")
-    assert page.status_code == 200 and "app.js" in page.text
+    if not (STATIC_DIR / "index.html").exists():
+        assert r.status_code == 200 and "npm run build" in r.json()["detail"]
+        pytest.skip("web app not built (npm run build in web/)")
+    assert r.status_code in (302, 307) and r.headers["location"] == "/app/"
+    assert client.get("/dashboard/", follow_redirects=False).headers["location"] == "/app/"
+    page = client.get("/app/")
+    assert page.status_code == 200 and '<div id="root">' in page.text

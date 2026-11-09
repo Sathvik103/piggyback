@@ -304,5 +304,72 @@ def write_robustness(csv_path: Path, out: Path | None = None) -> Path:
     return out
 
 
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
+_summary_cache: dict = {}
+
+
+def _num(x: float) -> float | None:
+    return None if x is None or math.isnan(x) else round(x, 3)
+
+
+def _ci_json(xs: list[float]) -> dict:
+    m, h = ci(xs)
+    return {"mean": _num(m), "ci95": _num(h)}
+
+
+def _paired_json(rows: list[dict], other: str) -> dict:
+    p = paired(rows, other)
+    out = {"n": p["n"], "wins": p["wins"]}
+    for k in ("ontime_pp", "penalty_pct", "cost_lakh"):
+        m, h = p[k]
+        out[k] = {"mean": _num(m), "ci95": _num(h), "significant": _significant(m, h)}
+    return out
+
+
+def benchmark_summary(results_dir: Path = RESULTS_DIR) -> dict:
+    """results/benchmark.csv and results/stress.csv as JSON for the UI and API.
+    Cached until either file changes."""
+    main, stress = results_dir / "benchmark.csv", results_dir / "stress.csv"
+    key = tuple(f.stat().st_mtime if f.exists() else None for f in (main, stress))
+    if _summary_cache.get("key") == key:
+        return _summary_cache["value"]
+    out: dict = {"hero": HERO, "available": main.exists(), "robustness": []}
+    if main.exists():
+        rows = load(main)
+        cases = sorted({_case(r) for r in rows})
+        present = [p.name for p in POLICIES if any(r["policy"] == p.name for r in rows)]
+        out["meta"] = {"scenarios": len(cases), "seeds": [min(c[1] for c in cases), max(c[1] for c in cases)],
+                       "tightness": sorted({c[2] for c in cases}), "anomaly_rate": sorted({c[3] for c in cases})}
+        out["policies"] = []
+        for name in present:
+            ms = [_metrics(r) for r in rows if r["policy"] == name]
+            out["policies"].append({"name": name, "label": BY_NAME[name].label, "family": BY_NAME[name].family,
+                                    **{k: _ci_json([m[k] for m in ms]) for k in ms[0]}})
+        out["versus"] = {o: _paired_json(rows, o) for o in present if o != HERO}
+        out["by_tightness"] = {
+            str(t): {o: _paired_json([r for r in rows if r["capacity_tightness"] == t], o)
+                     for o in present if o != HERO}
+            for t in out["meta"]["tightness"]}
+    if stress.exists():
+        rows = load(stress)
+        for v in [v for v in VARIANT_NOTES if any(r["variant"] == v for r in rows)]:
+            sub = [r for r in rows if r["variant"] == v]
+            hero = [_metrics(r) for r in sub if r["policy"] == HERO]
+            ns = [_metrics(r) for r in sub if r["policy"] == "next_service"]
+            out["robustness"].append({
+                "variant": v, "note": VARIANT_NOTES[v],
+                "hero_on_time_pct": _ci_json([m["on_time_pct"] for m in hero]),
+                "failed_pct": {"hero": _num(statistics.fmean(m["failed_pct"] for m in hero)),
+                               "next_service": _num(statistics.fmean(m["failed_pct"] for m in ns))},
+                "vs_next_service": _paired_json(sub, "next_service"),
+                "vs_express_truck": _paired_json(sub, "next_service_express_truck"),
+                "ablations": {o: _paired_json(sub, o) for o in
+                              ("piggyback_greedy", "piggyback_no_buffer", "piggyback_blind", "piggyback_proactive")
+                              if any(r["policy"] == o for r in sub)},
+            })
+    _summary_cache.update(key=key, value=out)
+    return out
+
+
 if __name__ == "__main__":
     print(write_report(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("results/benchmark.csv")))

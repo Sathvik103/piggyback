@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from benchmark.report import benchmark_summary
 from db import DEFAULT_URL, Repo, migrate
 from detection import DetectorConfig, score
 from detection.detector import KIND_AT_RISK
@@ -30,11 +31,11 @@ from detection.view import scans_by_shipment
 from recovery import OptionsConfig, RecoveryOption, replay
 from simulator.models import ScenarioConfig
 
-from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, ScenarioStore
+from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, RouteContext, ScenarioStore
 
 DEFAULT_GRACE_H = DetectorConfig().grace_h
 _defaults = ScenarioConfig()
-STATIC_DIR = Path(__file__).parent / "static"
+STATIC_DIR = Path(__file__).parent / "static"  # web/ builds here (npm run build)
 Grace = Query(DEFAULT_GRACE_H, ge=0.0, le=24.0)
 
 
@@ -48,6 +49,9 @@ class ScenarioCreate(BaseModel):
     n_disruptions: int = Field(_defaults.n_disruptions, ge=0, le=50)
     trip_delay_rate: float = Field(_defaults.trip_delay_rate, ge=0.0, le=1.0)
     scan_lag_rate: float = Field(_defaults.scan_lag_rate, ge=0.0, le=1.0)
+    delay_mode: Literal["trip", "leg"] = _defaults.delay_mode
+    cancel_rate: float = Field(_defaults.cancel_rate, ge=0.0, le=0.5)
+    capacity_correlation: float = Field(_defaults.capacity_correlation, ge=0.0, le=1.0)
 
 
 class PlanCreate(BaseModel):
@@ -68,15 +72,22 @@ class DecisionCreate(BaseModel):
     grace_h: float = Field(DEFAULT_GRACE_H, ge=0.0, le=24.0)
 
 
-def _choice(c: RecoveryOption, legs, dest) -> dict:
-    """A plan choice plus `route`: the hubs it passes through, for drawing."""
+def _choice(c: RecoveryOption, ctx: RouteContext) -> dict:
+    """An option plus what the UI draws and shows: `route`, the hubs it passes through,
+    and `load_after_pct`, how full the fullest truck on it would be once this parcel
+    is added (None when it uses no spare capacity)."""
     if c.legs:
-        route = [c.from_hub] + [legs[l].to_hub for l in c.legs]
+        route = [c.from_hub] + [ctx.legs[l].to_hub for l in c.legs]
     elif c.mode == "DEDICATED":
-        route = [c.from_hub, dest[c.shipment_id]]
+        route = [c.from_hub, ctx.dest[c.shipment_id]]
     else:
         route = [c.from_hub]
-    return {**asdict(c), "route": route}
+    loads = []
+    for leg in c.capacity_legs:
+        cap_kg, cap_m3 = ctx.totals[leg]
+        free_kg, free_m3 = ctx.free[leg]
+        loads.append(max((cap_kg - free_kg + c.weight_kg) / cap_kg, (cap_m3 - free_m3 + c.volume_m3) / cap_m3))
+    return {**asdict(c), "route": route, "load_after_pct": round(100 * max(loads), 1) if loads else None}
 
 
 def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> FastAPI:
@@ -185,14 +196,14 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         if ship is None:
             raise NotFound(shipment_id)
         legs = {l.leg_id: l for l in v.legs}
-        dest = {x.shipment_id: x.dest_hub for x in v.shipments}
+        ctx = s.route_context(sid)
         det = next((d for d in s.detections(sid, grace_h) if d.shipment_id == shipment_id), None)
         plans = []
         for p in s.plans(sid):
             choice = s.repo.plan_choices(sid, int(p["plan_id"][1:]), shipment_id)
             if choice:
                 plans.append({"plan_id": p["plan_id"], "solver": p["solver"],
-                              "choice": _choice(choice[0], legs, dest)})
+                              "choice": _choice(choice[0], ctx)})
         return {
             "shipment": asdict(ship),
             "booked_legs": [asdict(legs[i]) for i in ship.planned_legs.split(";")],
@@ -206,10 +217,9 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     def shipment_options(sid: str, shipment_id: str, grace_h: float = Grace):
         """Live recovery options for a flagged shipment, against capacity still free."""
         s = store()
-        v = s.view(sid)
-        legs = {l.leg_id: l for l in v.legs}
-        dest = {x.shipment_id: x.dest_hub for x in v.shipments}
-        return [_choice(o, legs, dest) for o in s.options_for(sid, shipment_id, grace_h)]
+        opts = s.options_for(sid, shipment_id, grace_h)
+        ctx = s.route_context(sid, free_for=shipment_id)
+        return [_choice(o, ctx) for o in opts]
 
     @app.get("/scenarios/{sid}/hubs/{hub_id}")
     def hub(sid: str, hub_id: str, window_h: float = Query(24.0, gt=0.0, le=144.0), grace_h: float = Grace):
@@ -246,10 +256,8 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     def get_plan(sid: str, plan_id: str, mode: str | None = None):
         s = store()
         summary, choices = s.plan(sid, plan_id)
-        v = s.view(sid)
-        legs = {l.leg_id: l for l in v.legs}
-        dest = {x.shipment_id: x.dest_hub for x in v.shipments}
-        return {**summary, "choices": [_choice(c, legs, dest) for c in choices if mode is None or c.mode == mode]}
+        ctx = s.route_context(sid)
+        return {**summary, "choices": [_choice(c, ctx) for c in choices if mode is None or c.mode == mode]}
 
     # ------------------------------------------------------------------ decisions
 
@@ -262,10 +270,18 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
                               body.note, body.decided_by, body.grace_h)
 
     @app.get("/scenarios/{sid}/decisions")
-    def list_decisions(sid: str):
+    def list_decisions(sid: str, history: bool = False):
+        """Decisions in force, or with `history=true` the whole append-only log."""
         s = store()
         s.check(sid)
-        return s.repo.decisions(sid)
+        return s.repo.decisions(sid, in_force_only=not history)
+
+    # ------------------------------------------------------------------ benchmark
+
+    @app.get("/benchmark")
+    def benchmark():
+        """The committed head-to-head and stress results (results/*.csv) as JSON."""
+        return benchmark_summary()
 
     # ------------------------------------------------------------------ evaluation (reads truth)
 
@@ -300,11 +316,18 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         return {"accepted": len(s.accepted_plan(sid).chosen),
                 **_replay(sid, s.accepted_plan(sid), grace_h, outcomes)}
 
-    # ------------------------------------------------------------------ dashboard
+    # ------------------------------------------------------------------ web app
+
+    built = (STATIC_DIR / "index.html").exists()
 
     @app.get("/", include_in_schema=False)
+    @app.get("/dashboard/", include_in_schema=False)  # the old address
     def root():
-        return RedirectResponse("/dashboard/")
+        if built:
+            return RedirectResponse("/app/")
+        return JSONResponse({"detail": "The web app isn't built. Run `npm ci && npm run build` in web/, "
+                                       "or use the API directly at /docs."})
 
-    app.mount("/dashboard", StaticFiles(directory=STATIC_DIR, html=True), name="dashboard")
+    if built:
+        app.mount("/app", StaticFiles(directory=STATIC_DIR, html=True), name="app")
     return app
