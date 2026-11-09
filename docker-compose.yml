@@ -15,6 +15,17 @@ services:
       timeout: 3s
       retries: 30
 
-# The schema is applied by `python -m db migrate` (the API also runs it on start).
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://piggyback:piggyback@db:5432/piggyback
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["app"]   # `docker compose --profile app up` runs the API + dashboard too
+
+# The schema is applied by `python -m db migrate`; the API also runs it on start.
 volumes:
   pgdata:

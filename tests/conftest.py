@@ -26,6 +26,8 @@ def pg_url():
             if not conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (info["dbname"],)).fetchone():
                 conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(info["dbname"])))
     except psycopg.OperationalError as e:
+        if os.environ.get("PIGGYBACK_REQUIRE_DB") == "1":  # CI: a missing DB is a failure, not a skip
+            pytest.fail(f"Postgres not reachable at {TEST_DB_URL}: {e}")
         pytest.skip(f"Postgres not reachable at {TEST_DB_URL}: {e}")
     with psycopg.connect(TEST_DB_URL, autocommit=True) as conn:
         conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")

@@ -1,0 +1,40 @@
+[project]
+name = "piggyback"
+version = "0.8.0"
+description = "Delay-aware recovery of stranded shipments onto scheduled trips with spare capacity."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ortools>=9.11,<10",
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.29,<1",
+    "psycopg[binary]>=3.2,<4",
+    "psycopg-pool>=3.2,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27,<1", "ruff>=0.7,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # Starlette's TestClient nags about httpx; harmless for our tests.
+    "ignore:Using `httpx` with `starlette.testclient`",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["data", "results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E741",   # `l` is the conventional name for a trip leg throughout
+    "B008",   # FastAPI's Query(...) defaults are the documented pattern
+    "B023",   # closures over loop variables are used immediately, not stored
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "benchmark", "db", "detection", "recovery", "simulator"]

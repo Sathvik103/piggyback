@@ -8,13 +8,15 @@ A delay-aware shipment recovery engine. It finds stranded or misplaced shipments
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                        # 75 tests (DB tests skip if Postgres is down)
+python -m pytest                                           # all tests (DB tests skip if Postgres is down)
+ruff check .                                               # lint
 python -m simulator.cli --seed 42 --out data/scenario_42   # CSVs + scenario.json + summary.json
 python -m detection.cli data/scenario_42                   # detections.csv + score vs truth
 python -m detection.cli data/scenario_42 --sweep           # precision/recall across grace periods
 python -m recovery.cli data/scenario_42                    # plan_*.csv per solver + replayed KPIs
 python scripts/eval_detection.py 30                        # detection over seeds 1-30
 python -m benchmark.run                                    # head-to-head benchmark, 180 scenarios (~3 min) -> results/
+python -m benchmark.run --stress                           # same contest under harder conditions -> results/ROBUSTNESS.md
 python -m uvicorn api.app:create_app --factory --port 8000 # dashboard at http://localhost:8000/, API docs at /docs
 ```
 
@@ -22,12 +24,13 @@ Database (needs Docker running; the API needs it, the CLIs above don't):
 
 ```bash
 docker compose up -d db                      # Postgres 16 + PostGIS on localhost:5433
+docker compose --profile app up -d --build    # ...plus the API + dashboard container on :8000
 python -m db migrate                         # apply db/migrations (the API also does this on start)
 python -m db load data/scenario_42           # load a simulator.cli folder, or:
 python -m db seed scenario_7 --seed 7        # generate straight into Postgres
 ```
 
-The database is published on port **5433**, so it doesn't clash with a locally installed Postgres on 5432. Set `DATABASE_URL` to point elsewhere; tests use a separate `piggyback_test` database (`PIGGYBACK_TEST_DATABASE_URL`) that they wipe and re-migrate.
+On Windows, `scripts/start_docker.ps1` starts Docker Desktop and the database. It works around a Docker Desktop bug where leftover socket files make it crash on start. The database is published on port **5433**, so it doesn't clash with a locally installed Postgres on 5432. Set `DATABASE_URL` to point elsewhere; tests use a separate `piggyback_test` database (`PIGGYBACK_TEST_DATABASE_URL`) that they wipe and re-migrate.
 
 ## What the simulator builds
 
@@ -70,18 +73,33 @@ Both next-service baselines are reactive, but they still rebook a parcel when it
 
 | Piggyback vs | Δ stranded on time | Δ realized penalty¹ | Failed recoveries | Lower penalty in |
 |---|---|---|---|---|
-| Next service, FCFS | **+4.5 pp** (±0.6) | **−22.0%** (±2.2) | **5.0% vs 10.7%** | 170 / 180 |
-| Next service + truck for late EXPRESS | −4.5 pp (±0.7) | **−42.8%** (±1.9) | 5.0% vs 9.5% | 180 / 180 |
-| Do nothing | +68.4 pp | −82.3% | — | 180 / 180 |
+| Next service, FCFS | **+4.0 pp** (±0.7) | **−25.4%** (±2.6) | **1.9% vs 10.7%** | 167 / 180 |
+| Next service + truck for late EXPRESS | −5.0 pp (±0.8) | **−45.5%** (±1.9) | 1.9% vs 9.5% | 180 / 180 |
+| Do nothing | +67.9 pp | −83% | — | 180 / 180 |
 
-¹ Money spent + ₹250 × priority weight × hours late. Against next-service, the win holds whatever a late hour is worth, from ₹50 to ₹1000 (−10.5% to −24.6%). The truck rule gets more parcels on time by spending ₹9.3 lakh per scenario on trucks, about 10× Piggyback's spend.
+¹ Money spent + ₹250 × priority weight × hours late. Against next-service, the win holds whatever a late hour is worth, from ₹50 to ₹1000 (−11.8% to −28.5%). The truck rule gets more parcels on time by spending ₹9.3 lakh per scenario on trucks, about 9× Piggyback's spend.
 
 **Where the gain comes from** (ablations, each changing one ingredient):
-- **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −18.1% penalty and halves failed recoveries.
-- **The CP-SAT optimizer adds −2.7% overall.** That's about zero when trucks have room, and −6.0% when capacity is tight (0.9).
-- **Acting early on at-risk parcels doesn't pay.** Piggyback watches them and rebooks only once they really strand. Rebooking them early instead is no better (−1.6% ± 1.6 in favour of waiting), and when trucks have room it is measurably worse.
+- **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −21.4% penalty and cuts failed recoveries from 9.8% to 1.9%.
+- **The transfer buffer is a reliability feature.** Piggyback demands 1.5 h extra slack when transferring off a truck nobody has been scanned on yet. That more than halves failed recoveries (4.2% → 1.9%) for −0.6 pp on time. Its penalty saving is only significant when capacity is tight (−5.0% at 0.9). The buffer size was chosen on separate validation seeds (101–110), never on the reported ones.
+- **The CP-SAT optimizer adds −3.1% overall.** That's about zero when trucks have room, and −7.6% when capacity is tight (0.9).
+- **Acting early on at-risk parcels doesn't pay.** Piggyback watches them and rebooks only once they really strand. Rebooking them early instead costs more (−1.9% ± 1.5 in favour of waiting), most clearly when trucks have room.
 
 **Disclosure:** Piggyback originally rebooked at-risk parcels proactively. The benchmark's own ablation showed that didn't pay, so the default was switched to wait-then-act and the benchmark re-run. The numbers above are for the shipped default. Proactive rebooking is still available as `include_at_risk` on the API and `--include-at-risk` on the CLI.
+
+**Robustness.** `python -m benchmark.run --stress` re-runs the contest under conditions Piggyback was not designed around, each changing one thing from the default world. Full tables are in [results/ROBUSTNESS.md](results/ROBUSTNESS.md).
+
+| Condition (10 seeds × tightness 0.6/0.9) | Δ penalty vs next service | Δ on time | Failed: Piggyback / next service | Wins |
+|---|---|---|---|---|
+| Default world | **−19.0%** (±8.4) | **+2.6 pp** | 2.2% / 9.8% | 17 / 20 |
+| Delays start mid-trip (early scans look on time) | **−17.5%** (±9.8) | **+3.0 pp** | 1.2% / 9.1% | 18 / 20 |
+| 3% of trips silently cancelled | **−19.4%** (±5.5) | **+3.4 pp** | 6.2% / 14.9% | 19 / 20 |
+| Spare room scarce on busy corridors and evenings | **−21.1%** (±7.5) | **+3.4 pp** | 2.4% / 9.7% | 18 / 20 |
+| 3× noisier scan uploads | **−19.5%** (±7.5) | **+2.8 pp** | 2.2% / 9.7% | 17 / 20 |
+| Twice as many late trips | **−29.0%** (±9.0) | **+6.2 pp** | 3.6% / 14.4% | 19 / 20 |
+
+- **The win holds in every condition.** Delays starting mid-trip are the hardest case for delay awareness, which is still worth −11.8% there. In that condition the transfer buffer doesn't help.
+- **Silent cancellations** triple Piggyback's failures, since no planner can see them coming, but it still fails at less than half the baseline's rate.
 
 These are results on Piggyback's own simulator. The benchmark is built to be fair: baselines get a second chance at parcels that strand later, and every number is reproducible from its seed. It is not evidence from a real network.
 
@@ -142,9 +160,10 @@ recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs tr
 api/         FastAPI app, the scenario store behind it, and static/ (the dashboard)
 db/          migrations/, migration runner, repository, `python -m db` admin CLI
 benchmark/   baseline + ablation policies, grid runner, report
-results/     benchmark.csv + REPORT.md from the last full run
-scripts/     eval_detection.py
-tests/       simulator, schema/loader/CSV cross-checks, detection, recovery, API
+results/     benchmark.csv + REPORT.md, stress.csv + ROBUSTNESS.md from the last full runs
+scripts/     eval_detection.py, start_docker.ps1 (Windows Docker Desktop helper)
+.github/     CI: lint, tests against a PostGIS service container, benchmark smoke run
+tests/       simulator, migrations, Postgres repository (incl. a concurrency race), detection, recovery, API, benchmark
 docs/        DECISIONS.md
 ```
 

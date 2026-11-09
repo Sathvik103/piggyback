@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: piggyback
+          POSTGRES_PASSWORD: piggyback
+          POSTGRES_DB: piggyback
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U piggyback -d piggyback"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql://piggyback:piggyback@localhost:5433/piggyback
+      PIGGYBACK_TEST_DATABASE_URL: postgresql://piggyback:piggyback@localhost:5433/piggyback_test
+      PIGGYBACK_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt ruff
+      - name: Lint
+        run: ruff check .
+      - name: Migrate
+        run: python -m db migrate
+      - name: Tests (incl. Postgres, concurrency and API)
+        run: pytest
+      - name: Benchmark smoke run
+        run: python -m benchmark.run --quick --workers 2 --out /tmp/bench/quick.csv
