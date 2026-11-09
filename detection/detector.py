@@ -30,7 +30,6 @@ more than `unobserved_trip_wait_h` overdue.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from simulator.generator import planned_scans
 from simulator.generator import rides as rides_of
@@ -74,10 +73,10 @@ class Detection:
     priority: str
     deadline_h: float
     last_scan_h: float
-    expected_h: Optional[float]   # when the missing scan was due (None for HELD/MISROUTE)
+    expected_h: float | None   # when the missing scan was due (None for HELD/MISROUTE)
     overdue_h: float
     confidence: float
-    cluster_id: Optional[str]
+    cluster_id: str | None
     evidence: str
 
 

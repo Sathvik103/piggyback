@@ -12,10 +12,12 @@ from simulator.models import (
     ANOMALY_MISROUTE,
     ANOMALY_MISSED_CONNECTION,
     ANOMALY_MISSORT,
+    ANOMALY_TRIP_CANCELLED,
     ANOMALY_TYPES,
     SCAN_HELD,
     SCAN_LOADED,
     SCAN_UNLOADED,
+    leg_shift,
 )
 
 
@@ -59,7 +61,7 @@ def test_corridors_cover_every_lane(scenario):
         assert c.frequency_h in (12, 24)
         stops = c.hub_sequence.split(">")
         assert len(set(stops)) == len(stops)
-        covered.update(zip(stops, stops[1:]))
+        covered.update(zip(stops, stops[1:], strict=False))
     assert covered == {(l.from_hub, l.to_hub) for l in scenario.lanes}
 
 
@@ -74,7 +76,7 @@ def test_trip_legs_are_continuous_and_within_capacity(scenario):
         c = corridor[trip[tid].corridor_id]
         assert ls[0].departure_h == trip[tid].departure_h
         assert ls[-1].arrival_h == trip[tid].arrival_h
-        for a, b in zip(ls, ls[1:]):
+        for a, b in zip(ls, ls[1:], strict=False):
             assert a.to_hub == b.from_hub and b.departure_h > a.arrival_h
         for l in ls:
             assert 0 <= l.spare_kg <= c.capacity_kg and 0 <= l.spare_m3 <= c.capacity_m3
@@ -87,7 +89,7 @@ def test_planned_itineraries_are_feasible(scenario):
         path = [legs[i] for i in s.planned_legs.split(";")]
         assert path[0].from_hub == s.origin_hub and path[-1].to_hub == s.dest_hub
         assert path[0].departure_h >= s.created_h
-        for a, b in zip(path, path[1:]):
+        for a, b in zip(path, path[1:], strict=False):
             assert a.to_hub == b.from_hub
             gap = 0.0 if a.trip_id == b.trip_id else MIN_CONNECTION_H
             assert b.departure_h >= a.arrival_h + gap - 1e-9
@@ -96,7 +98,7 @@ def test_planned_itineraries_are_feasible(scenario):
 
 def test_scans_are_visible_only_once_recorded_and_ordered(scenario):
     by_ship = _scans_by_shipment(scenario)
-    for sid, scans in by_ship.items():
+    for scans in by_ship.values():
         ts = [e.ts_h for e in scans]
         assert ts == sorted(ts)
         assert all(e.ts_h <= e.recorded_h <= scenario.now for e in scans)
@@ -157,8 +159,54 @@ def test_stranded_histories_match_ground_truth(no_lag):
 
 
 def test_every_anomaly_type_occurs(scenario):
-    assert {t.anomaly_type for t in scenario.truth} == set(ANOMALY_TYPES)
+    # TRIP_CANCELLED only happens under the cancel_rate stress knob.
+    assert {t.anomaly_type for t in scenario.truth} == set(ANOMALY_TYPES) - {ANOMALY_TRIP_CANCELLED}
     assert len({t.incident_id for t in scenario.truth if t.incident_id}) == scenario.config.n_incidents
+
+
+def test_stress_knobs_are_off_by_default(scenario):
+    assert all(d.from_seq == 1 and not d.cancelled for d in scenario.trip_delays)
+
+
+def test_mid_trip_delays_leave_early_legs_on_time():
+    sc = generate_scenario(seed=42, delay_mode="leg")
+    n_legs = {}
+    for l in sc.legs:
+        n_legs[l.trip_id] = max(n_legs.get(l.trip_id, 0), l.seq)
+    multi = [d for d in sc.trip_delays if n_legs[d.trip_id] > 1]
+    assert multi and all(2 <= d.from_seq <= n_legs[d.trip_id] for d in multi)
+    assert leg_shift({d.trip_id: d for d in multi}, multi[0].trip_id, 1) == 0.0
+    assert leg_shift({d.trip_id: d for d in multi}, multi[0].trip_id, multi[0].from_seq) == multi[0].delay_h
+
+
+def test_cancelled_trips_strand_their_parcels_where_they_wait():
+    sc = generate_scenario(seed=42, cancel_rate=0.03, scan_lag_rate=0.0)
+    cancelled = {d.trip_id for d in sc.trip_delays if d.cancelled}
+    assert cancelled and all(d.delay_h == 0.0 for d in sc.trip_delays if d.cancelled)
+    legs = {l.leg_id: l for l in sc.legs}
+    ships = {s.shipment_id: s for s in sc.shipments}
+    stuck = [t for t in sc.truth if t.anomaly_type == ANOMALY_TRIP_CANCELLED]
+    assert stuck
+    for t in stuck:
+        path = [legs[i] for i in ships[t.shipment_id].planned_legs.split(";")]
+        waits_for = next(l for l in path if l.from_hub == t.true_hub_id and l.trip_id in cancelled)
+        assert t.stranded_at_h >= waits_for.departure_h and t.stranded_at_h <= sc.now
+        # Nobody was ever scanned onto a cancelled trip.
+        assert not any(e.leg_id and legs[e.leg_id].trip_id in cancelled for e in sc.scans)
+
+
+def test_correlated_capacity_makes_evenings_scarce():
+    flat = generate_scenario(seed=8, n_shipments=200)
+    corr = generate_scenario(seed=8, n_shipments=200, capacity_correlation=0.9)
+
+    def evening_share(sc):
+        cap = {t.trip_id: next(c for c in sc.corridors if c.corridor_id == t.corridor_id).capacity_kg
+               for t in sc.trips}
+        ev = [l.spare_kg / cap[l.trip_id] for l in sc.legs if 18 <= l.departure_h % 24 < 23]
+        rest = [l.spare_kg / cap[l.trip_id] for l in sc.legs if not 18 <= l.departure_h % 24 < 23]
+        return sum(ev) / len(ev) / (sum(rest) / len(rest))
+
+    assert evening_share(corr) < 0.75 * evening_share(flat)
 
 
 def test_disruptions_start_at_now_and_reference_real_ids(scenario):

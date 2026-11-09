@@ -82,6 +82,36 @@ def test_reactive_followup_rebooks_only_parcels_that_really_strand(world):
     assert capacity_violations(after, leg_capacity(view)) == []
 
 
+def test_transfer_buffer_only_follows_trips_with_unknown_delays(world):
+    _, view, _ = world
+    from recovery.network import UNOBSERVED_TRANSFER_BUFFER_H
+    planner = Network(view)
+    seen = next(iter(planner.observed))
+    unseen = next(t.trip_id for t in view.trips if t.trip_id not in planner.observed)
+    assert planner._buffer(seen) == 0.0 and planner._buffer(unseen) == UNOBSERVED_TRANSFER_BUFFER_H > 0
+    # Replay (true delays) and the published timetable never add slack.
+    for net in (Network(view, trip_delays={}), Network(view, trip_delays={}, disruptions=False)):
+        assert net._buffer(unseen) == 0.0
+    assert Network(view, transfer_buffer_h=0.0)._buffer(unseen) == 0.0
+
+
+def test_stress_cases_record_their_variant_and_report(tmp_path):
+    from benchmark.report import write_robustness
+    pols = ("next_service", "next_service_express_truck", "piggyback", "piggyback_greedy",
+            "piggyback_no_buffer", "piggyback_blind", "piggyback_proactive")
+    rows = []
+    for variant in ("default", "silent_cancellations"):
+        rows += run_case(1, 0.9, 0.04, pols, variant)
+    assert {r["variant"] for r in rows} == {"default", "silent_cancellations"}
+    path = tmp_path / "stress.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS, lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+    text = write_robustness(path).read_text(encoding="utf-8")
+    assert "silent cancellations" in text and "− transfer buffer" in text
+
+
 def test_run_case_scores_every_policy_on_the_same_scenario():
     rows = run_case(4, 0.6, 0.04, tuple(p.name for p in POLICIES))
     assert [r["policy"] for r in rows] == [p.name for p in POLICIES]

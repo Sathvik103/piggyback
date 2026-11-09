@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> None:
     has_truth = (a.scenario / "sim_truth.csv").exists() and (a.scenario / "sim_trip_delays.csv").exists()
     if has_truth:
         truth = read_table(a.scenario, "sim_truth")
-        delays = {d.trip_id: d.delay_h for d in read_table(a.scenario, "sim_trip_delays")}
+        delays = {d.trip_id: d for d in read_table(a.scenario, "sim_trip_delays")}
 
     rows = []
     for name in (SOLVERS if a.solver == "all" else [a.solver]):

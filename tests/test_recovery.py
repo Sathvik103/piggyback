@@ -5,7 +5,7 @@ import pytest
 from detection import OperatorView, detect
 from recovery import Network, OptionsConfig, RecoveryOption, generate_options, leg_capacity, replay
 from recovery import cli as recovery_cli
-from recovery.evaluate import FAILED, ON_TIME, LATE, UNRECOVERED
+from recovery.evaluate import FAILED, LATE, ON_TIME, UNRECOVERED
 from recovery.optimizer import capacity_violations, solve_cpsat, solve_greedy, solve_none
 from recovery.options import MODE_DEDICATED, MODE_LOCAL, MODE_NONE, MODE_PIGGYBACK, PRIORITY_WEIGHT
 from simulator.export import write_all
@@ -49,7 +49,7 @@ def test_earliest_paths_are_rideable(pipeline):
         assert path, (origin, dest)
         assert path[0].from_hub == origin and path[-1].to_hub == dest
         assert path[0].dep >= ready and path[0].can_board and path[-1].can_alight
-        for a, b in zip(path, path[1:]):
+        for a, b in zip(path, path[1:], strict=False):
             assert a.to_hub == b.from_hub
             if a.trip_id != b.trip_id:
                 assert a.can_alight and b.can_board and b.dep >= a.arr + MIN_CONNECTION_H - 1e-9
@@ -108,7 +108,7 @@ def test_cpsat_beats_greedy_when_order_matters():
 
 def test_replay_accounts_for_every_stranded_parcel(scenario, pipeline):
     view, dets, _, _, _, plans, delays = pipeline
-    for name, p in plans.items():
+    for p in plans.values():
         outcomes, k = replay(view, scenario.truth, delays, dets, p)
         assert k["on_time"] + k["late"] + k["failed"] + k["unrecovered"] == k["stranded"]
         assert k["stranded"] >= len(scenario.truth)

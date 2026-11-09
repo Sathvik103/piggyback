@@ -15,7 +15,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,8 +61,8 @@ class PlanCreate(BaseModel):
 class DecisionCreate(BaseModel):
     shipment_id: str = Field(max_length=32)
     action: Literal["ACCEPT", "DISMISS", "REVOKE"]
-    plan_id: Optional[str] = Field(None, description="ACCEPT this plan's choice for the shipment")
-    option_id: Optional[str] = Field(None, description="ACCEPT one of the shipment's live options")
+    plan_id: str | None = Field(None, description="ACCEPT this plan's choice for the shipment")
+    option_id: str | None = Field(None, description="ACCEPT one of the shipment's live options")
     note: str = Field("", max_length=500)
     decided_by: str = Field("operator", max_length=64)
     grace_h: float = Field(DEFAULT_GRACE_H, ge=0.0, le=24.0)
@@ -155,7 +155,7 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     @app.get("/scenarios/{sid}/detections")
     def detections(sid: str, grace_h: float = Grace,
                    status: Literal["all", "open", "decided"] = "all",
-                   kind: Optional[str] = None, hub: Optional[str] = None, priority: Optional[str] = None,
+                   kind: str | None = None, hub: str | None = None, priority: str | None = None,
                    limit: int = Query(500, ge=1, le=5000), offset: int = Query(0, ge=0)):
         """Flags, each with the operator decision in force on it (or null)."""
         s = store()
@@ -243,7 +243,7 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         return store().plans(sid)
 
     @app.get("/scenarios/{sid}/plans/{plan_id}")
-    def get_plan(sid: str, plan_id: str, mode: Optional[str] = None):
+    def get_plan(sid: str, plan_id: str, mode: str | None = None):
         s = store()
         summary, choices = s.plan(sid, plan_id)
         v = s.view(sid)

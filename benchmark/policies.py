@@ -21,6 +21,7 @@ Piggyback and its ablations each change one ingredient:
   parcels and options jointly, and it acts once a parcel is stranded (AT_RISK
   parcels are watched, then rebooked if they really strand).
 - piggyback_greedy: same options, greedy assignment instead of the optimizer.
+- piggyback_no_buffer: no extra slack after trips whose delay is still unknown.
 - piggyback_proactive: also rebooks AT_RISK parcels right away. This was the
   original default; the benchmark showed it doesn't pay, so it became an
   ablation (see docs/DECISIONS.md).
@@ -30,8 +31,8 @@ Piggyback and its ablations each change one ingredient:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable
 
 from detection.detector import KIND_AT_RISK, KIND_MISSED_CONNECTION, Detection
 from detection.view import OperatorView
@@ -97,9 +98,12 @@ def next_service(view: OperatorView, dets: list[Detection], express_truck: bool 
 
 
 def piggyback(view: OperatorView, dets: list[Detection], aware: bool = True, proactive: bool = False,
-              optimizer: str = "cpsat") -> Plan:
+              optimizer: str = "cpsat", buffer: bool = True) -> Plan:
     t0 = time.perf_counter()
-    net = Network(view) if aware else _blind(view)
+    if not aware:
+        net = _blind(view)
+    else:
+        net = Network(view) if buffer else Network(view, transfer_buffer_h=0.0)
     opts = generate_options(view, dets if proactive else _reactive(dets), network=net)
     cap = leg_capacity(view)
     if optimizer == "cpsat":
@@ -110,7 +114,7 @@ def piggyback(view: OperatorView, dets: list[Detection], aware: bool = True, pro
     return plan
 
 
-def reactive_followup(view: OperatorView, dets: list[Detection], plan: Plan, true_delays: dict[str, float],
+def reactive_followup(view: OperatorView, dets: list[Detection], plan: Plan, true_delays: dict,
                       how: str, grace_h: float = 2.0) -> Plan:
     """Give a reactive policy its second chance. For each AT_RISK parcel it didn't act
     on that really does miss its connection, rebook it the way the policy would once
@@ -174,6 +178,8 @@ POLICIES: list[Policy] = [
     Policy("piggyback", "piggyback", "Piggyback (delay-aware, CP-SAT)", piggyback, followup="best"),
     Policy("piggyback_greedy", "ablation", "− optimizer (greedy)",
            lambda v, d: piggyback(v, d, optimizer="greedy"), followup="best"),
+    Policy("piggyback_no_buffer", "ablation", "− transfer buffer",
+           lambda v, d: piggyback(v, d, buffer=False), followup="best"),
     Policy("piggyback_blind", "ablation", "− delay awareness (published timetable)",
            lambda v, d: piggyback(v, d, aware=False), followup="best_blind"),
     Policy("piggyback_proactive", "ablation", "+ proactive (rebooks AT_RISK early)",

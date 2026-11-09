@@ -138,7 +138,7 @@ def generate_options(view: OperatorView, detections: list[Detection],
                 if ids in seen:
                     continue
                 seen.add(ids)
-                handoffs = 1 + sum(a.trip_id != b.trip_id for a, b in zip(path, path[1:]))
+                handoffs = 1 + sum(a.trip_id != b.trip_id for a, b in zip(path, path[1:], strict=False))
                 cost = handoffs * cfg.handoff_cost_inr + sum(
                     e.distance_km for e in path if e.leg_id not in own) * s.weight_kg * cfg.marginal_inr_per_kg_km
                 add(MODE_PIGGYBACK, ids, tuple(i for i in ids if i not in own), path[0].dep,

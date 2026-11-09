@@ -74,7 +74,7 @@ def solve_cpsat(options: dict[str, list[RecoveryOption]],
     m = cp_model.CpModel()
     x: dict[str, cp_model.IntVar] = {}
     users: dict[str, list[RecoveryOption]] = {}
-    for sid, opts in options.items():
+    for opts in options.values():
         for o in opts:
             x[o.option_id] = m.new_bool_var(o.option_id)
             for l in o.capacity_legs:

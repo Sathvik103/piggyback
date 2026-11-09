@@ -117,7 +117,11 @@ Penalty = cost + ₹250 × priority weight (EXPRESS 3, STANDARD 2, ECONOMY 1) ×
 
 `AT_RISK` parcels count as stranded only if they really miss their connection under the true delays. Failed and unrecovered parcels are charged 48 h late.
 
-**Results.** See "Benchmark design" below and `results/REPORT.md`. About 5–6% of Piggyback's plans fail in replay. The main causes are trips running later than observed, which breaks planned connections, and the occasional wrong hub from detection. A connection buffer for trips nobody has been seen on is the obvious next improvement.
+**Transfer buffer.** Most failed recoveries came from transferring off a truck whose delay nobody had observed yet; it turned out later than planned and the connection broke. The planner therefore demands extra slack (`UNOBSERVED_TRANSFER_BUFFER_H`) when a plan changes trucks after one with no scans yet. Trucks with observed delays need none, and the replay and the baselines never use it. The value, 1.5 h, was picked on validation seeds 101–110 × tightness 0.6/0.9 (penalty −5.5% vs no buffer there, failures 4.9% → 2.1%). The reported seeds 1–20 were never used for tuning.
+
+On those reported seeds the buffer more than halves failed recoveries (4.2% → 1.9%), but its penalty saving is smaller than on validation and only significant when capacity is tight. So it's described as a reliability feature, not a cost saver.
+
+**Results.** See "Benchmark design" below, `results/REPORT.md` and `results/ROBUSTNESS.md`. About 2% of Piggyback's plans still fail in replay, mostly from the occasional wrong hub from detection and from trucks whose delay grows after it was observed.
 
 ## Benchmark design
 
@@ -134,11 +138,16 @@ A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_dis
 - **Default switched after benchmarking (disclosed).** Piggyback first rebooked AT_RISK parcels proactively. The fair benchmark showed that didn't pay: it reserves capacity on a prediction that waiting confirms more cheaply. So the default became wait-then-act and the grid was re-run. Proactive rebooking is still available (`include_at_risk` / `--include-at-risk`) and is benchmarked as an ablation.
 - **Statistics.** Comparisons are paired per scenario. The report shows mean differences with 95% t-intervals, and calls a difference significant only if its interval excludes 0. A sensitivity table re-prices the same outcomes at ₹50–1000 per late hour.
 - **Findings** (full numbers in `results/REPORT.md` and the README):
-  - **vs next service FCFS:** −22.0% realized penalty, +4.5 pp on time, and failed recoveries 5.0% vs 10.7%. Better in 170/180 scenarios.
-  - **vs the truck rule:** −42.8% penalty, though 4.5 pp fewer parcels on time, because it spends about 10× less.
-  - **Delay awareness carries most of the gain** (−18.1%).
-  - **CP-SAT over greedy:** −2.7% overall, −6.0% when capacity is tight.
-  - **Proactive rebooking:** no gain (−1.6% ± 1.6 in favour of waiting); it's worse when capacity is loose.
+  - **vs next service FCFS:** −25.4% realized penalty, +4.0 pp on time, and failed recoveries 1.9% vs 10.7%. Better in 167/180 scenarios.
+  - **vs the truck rule:** −45.5% penalty, though 5.0 pp fewer parcels on time, because it spends about 9× less.
+  - **Delay awareness carries most of the gain** (−21.4%).
+  - **Transfer buffer:** halves failures; penalty −1.8% overall (not significant), −5.0% when capacity is tight.
+  - **CP-SAT over greedy:** −3.1% overall, −7.6% when capacity is tight.
+  - **Proactive rebooking:** costs more (−1.9% ± 1.5 in favour of waiting).
+- **Robustness** (`python -m benchmark.run --stress`, `results/ROBUSTNESS.md`): the same contest under conditions Piggyback wasn't designed around. Each changes one thing from the default world: delays that start mid-trip (so early scans look on time), 3% of trips silently cancelled, spare capacity scarce on busy corridors and evenings, 3× noisier scans, and twice as many late trips. 10 seeds × tightness 0.6/0.9 per condition.
+  - **Result:** Piggyback beats next service FCFS on realized penalty in every condition (−17.5% to −29.0%, all significant). Failed recoveries are 2–4× lower, and it wins 17–19 of 20 scenarios per condition. The gap is widest with twice as many late trips.
+  - **Weak spots:** delays that start mid-trip blunt delay awareness (−11.8% vs −16% in the default world), and there the transfer buffer stops helping. Silent cancellations push Piggyback's failure rate to 6.2%, still under half the baseline's 14.9%.
+  - **The optimizer's contribution** is significant in every condition (−4.7% to −8.2%), largest when capacity is scarce at peaks.
 
 ## Calibration assumptions (not real-world data)
 

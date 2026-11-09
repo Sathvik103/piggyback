@@ -9,7 +9,6 @@ the matching table in db/schema.sql (tests enforce this).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Optional
 
 # Scan event types an operator can see.
 SCAN_INDUCTED = "INDUCTED"      # accepted at origin hub
@@ -25,8 +24,9 @@ ANOMALY_LOST_SCAN = "LOST_SCAN"  # physically moved on, but scans stopped
 ANOMALY_HELD = "HELD"           # held at a hub and never released
 ANOMALY_MISSORT = "MISSORT"     # caught in a burst incident at one hub
 ANOMALY_MISSED_CONNECTION = "MISSED_CONNECTION"  # a late trip arrived after the next leg left
+ANOMALY_TRIP_CANCELLED = "TRIP_CANCELLED"  # its booked trip never ran (unannounced)
 ANOMALY_TYPES = (ANOMALY_MISROUTE, ANOMALY_LOST_SCAN, ANOMALY_HELD, ANOMALY_MISSORT,
-                 ANOMALY_MISSED_CONNECTION)
+                 ANOMALY_MISSED_CONNECTION, ANOMALY_TRIP_CANCELLED)
 
 DISRUPTION_TRIP_BREAKDOWN = "TRIP_BREAKDOWN"
 DISRUPTION_HUB_CLOSURE = "HUB_CLOSURE"
@@ -55,6 +55,12 @@ class ScenarioConfig:
     # Benign noise that detection has to see through.
     trip_delay_rate: float = 0.2  # share of trips that run 0.5-4 h late end to end
     scan_lag_rate: float = 0.05   # share of scans that reach the system 1-6 h late
+    # Stress knobs (off by default): conditions the planner was not designed around.
+    delay_mode: str = "trip"      # "trip": a late trip is late from the start;
+                                  # "leg": the delay starts at a random later leg
+    cancel_rate: float = 0.0      # share of trips that silently never run (not announced)
+    capacity_correlation: float = 0.0  # 0 = spare capacity independent per leg;
+                                       # 1 = scarce on busy corridors and evening departures
 
 
 @dataclass(frozen=True)
@@ -140,8 +146,8 @@ class ScanEvent:
     recorded_h: float          # when it reached the system; visible iff <= now
     hub_id: str
     event_type: str
-    leg_id: Optional[str] = None
-    note: Optional[str] = None
+    leg_id: str | None = None
+    note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,10 +156,10 @@ class Disruption:
     kind: str
     start_h: float
     end_h: float
-    trip_id: Optional[str] = None
-    hub_id: Optional[str] = None
-    lane_id: Optional[str] = None
-    delay_h: Optional[float] = None
+    trip_id: str | None = None
+    hub_id: str | None = None
+    lane_id: str | None = None
+    delay_h: float | None = None
 
 
 @dataclass(frozen=True)
@@ -163,15 +169,33 @@ class TruthRecord:
     anomaly_type: str
     stranded_at_h: float
     true_hub_id: str           # where the parcel physically is at `now`
-    incident_id: Optional[str] = None
+    incident_id: str | None = None
 
 
 @dataclass(frozen=True)
 class TripDelay:
-    """How late a trip actually ran (whole trip shifted). Not visible to the operator,
-    who can only infer it from the scans of parcels on board."""
+    """How a trip actually ran. Not visible to the operator, who can only infer it from
+    the scans of parcels on board (and only once they happen).
+
+    The trip runs `delay_h` late from leg `from_seq` on (1 = the whole trip), or, if
+    `cancelled`, never runs at all."""
     trip_id: str
     delay_h: float
+    from_seq: int = 1
+    cancelled: bool = False
+
+
+def leg_shift(delays, trip_id: str, seq: int) -> float | None:
+    """How late leg `seq` of a trip runs, or None if it doesn't run. `delays` maps
+    trip_id to a TripDelay, or to plain hours (= late for the whole trip)."""
+    d = delays.get(trip_id)
+    if d is None:
+        return 0.0
+    if isinstance(d, (int, float)):
+        return float(d)
+    if d.cancelled:
+        return None
+    return d.delay_h if seq >= d.from_seq else 0.0
 
 
 @dataclass

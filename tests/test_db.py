@@ -52,7 +52,7 @@ def test_saved_scenario_reads_back_as_the_same_operator_view(repo, world):
 def test_truth_lives_apart_from_the_operator_view(repo, world):
     truth, delays = repo.truth("t7")
     assert truth == sorted(world.truth, key=lambda t: t.shipment_id)
-    assert delays == {d.trip_id: d.delay_h for d in world.trip_delays}
+    assert delays == {d.trip_id: d for d in world.trip_delays}
     assert not {"truth", "trip_delays"} & {f.name for f in fields(OperatorView)}
 
 

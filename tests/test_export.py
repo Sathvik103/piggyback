@@ -29,6 +29,8 @@ def schema_columns() -> dict[str, list[str]]:
             if re.fullmatch(r"[a-z_][a-z0-9_]*", word):  # skips CHECK/UNIQUE/PRIMARY, comments, continuations
                 cols.append(word)
         out[name] = cols
+    for name, col in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)", SCHEMA):
+        out[name].append(col)
     return out
 
 
@@ -44,10 +46,10 @@ def test_migrations_create_every_simulator_table_with_its_columns_in_order():
     assert set(TABLES) <= set(schema)
     for table, (cls, _) in TABLES.items():
         cols = column_names(cls)
-        # scenario_id first, then the dataclass fields in order, then derived geometry.
+        # scenario_id first, then the dataclass fields; derived geometry may sit before
+        # columns that later migrations appended.
         assert schema[table][0] == "scenario_id", table
-        assert schema[table][1:len(cols) + 1] == cols, table
-        assert all(c == "geom" for c in schema[table][len(cols) + 1:]), table
+        assert [c for c in schema[table][1:] if c != "geom"] == cols, table
     assert {"scenarios", "plans", "plan_choices", "decisions"} <= set(schema)
 
 

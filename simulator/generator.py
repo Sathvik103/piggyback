@@ -14,7 +14,6 @@ import math
 import random
 from dataclasses import replace
 from datetime import datetime
-from typing import Optional
 
 from .hubs import (
     HUB_DWELL_H,
@@ -30,6 +29,7 @@ from .models import (
     ANOMALY_MISROUTE,
     ANOMALY_MISSED_CONNECTION,
     ANOMALY_MISSORT,
+    ANOMALY_TRIP_CANCELLED,
     DISRUPTION_HUB_CLOSURE,
     DISRUPTION_LANE_DELAY,
     DISRUPTION_TRIP_BREAKDOWN,
@@ -43,14 +43,15 @@ from .models import (
     Disruption,
     Hub,
     Lane,
-    Scenario,
     ScanEvent,
+    Scenario,
     ScenarioConfig,
     Shipment,
     Trip,
     TripDelay,
     TripLeg,
     TruthRecord,
+    leg_shift,
 )
 
 N_NEAREST = 3
@@ -175,16 +176,21 @@ def build_trips(rng: random.Random, cfg: ScenarioConfig, corridors: list[Corrido
 
     trips, legs = [], []
     n = 0
+    corr = cfg.capacity_correlation
     for c in corridors:
         stops = c.hub_sequence.split(">")
         dep = c.first_departure_h
+        # Stress knob: some corridors run fuller than others (drawn only when on).
+        busy = rng.uniform(1.0 - corr, 1.0) if corr > 0 else 1.0
         while dep < cfg.horizon_h:
             n += 1
             trip_id = f"T{n:04d}"
             t = dep
-            for seq, (fh, th) in enumerate(zip(stops, stops[1:]), start=1):
+            for seq, (fh, th) in enumerate(zip(stops, stops[1:], strict=False), start=1):
                 lane = lane_by_id[f"{fh}-{th}"]
-                frac = rng.betavariate(a, b)
+                frac = rng.betavariate(a, b) * busy
+                if corr > 0 and 18.0 <= (t % 24.0) < 23.0:  # evening departures are the fullest
+                    frac *= 1.0 - 0.6 * corr
                 arr = t + lane.travel_h
                 legs.append(TripLeg(
                     leg_id=f"{trip_id}-{seq}", trip_id=trip_id, seq=seq, lane_id=lane.lane_id,
@@ -207,7 +213,7 @@ class Router:
         self.legs = sorted(legs, key=lambda l: (l.departure_h, l.leg_id))
         self.deps = [l.departure_h for l in self.legs]
 
-    def route(self, origin: str, dest: str, ready_h: float) -> Optional[list[TripLeg]]:
+    def route(self, origin: str, dest: str, ready_h: float) -> list[TripLeg] | None:
         ready = {origin: ready_h}           # time a parcel can be loaded at a hub
         arrived_by: dict[str, TripLeg] = {}
         boarded_at: dict[str, TripLeg] = {}  # trip_id -> leg where we got on
@@ -262,7 +268,7 @@ def rides(path: list[TripLeg]) -> list[tuple[TripLeg, TripLeg]]:
 # --------------------------------------------------------------------------- shipments
 
 # An unnumbered scan: (ts_h, hub_id, event_type, leg_id, note)
-RawScan = tuple[float, str, str, Optional[str], Optional[str]]
+RawScan = tuple[float, str, str, str | None, str | None]
 
 
 def planned_scans(s: Shipment, path: list[TripLeg]) -> list[RawScan]:
@@ -271,29 +277,53 @@ def planned_scans(s: Shipment, path: list[TripLeg]) -> list[RawScan]:
     return scans
 
 
-def actual_scans(s: Shipment, path: list[TripLeg], delay: dict[str, float],
-                 ) -> tuple[list[RawScan], Optional[tuple[str, float]]]:
-    """Scans with each trip shifted by its delay. Stops at the first missed connection
-    and returns (hub, arrival time) of that miss as the second value."""
+def actual_scans(s: Shipment, path: list[TripLeg], delay,
+                 ) -> tuple[list[RawScan], tuple[str, float, str] | None]:
+    """Scans as the booked itinerary really runs (`delay`: see models.leg_shift).
+    Stops where the parcel gets stuck and returns (hub, time, anomaly type) of that as
+    the second value: a missed connection after a late arrival, or a booked trip that
+    never ran."""
     scans: list[RawScan] = [(s.created_h, s.origin_hub, SCAN_INDUCTED, None, None)]
     rs = rides(path)
     arr = 0.0
     for i, (board, alight) in enumerate(rs):
-        d = delay.get(board.trip_id, 0.0)
-        arr = _r(alight.arrival_h + d)
-        scans.append((_r(board.departure_h + d), board.from_hub, SCAN_LOADED, board.leg_id, None))
+        dep_shift = leg_shift(delay, board.trip_id, board.seq)
+        if dep_shift is None:  # the trip it waits for never comes
+            return scans, (board.from_hub, board.departure_h, ANOMALY_TRIP_CANCELLED)
+        arr = _r(alight.arrival_h + leg_shift(delay, alight.trip_id, alight.seq))
+        scans.append((_r(board.departure_h + dep_shift), board.from_hub, SCAN_LOADED, board.leg_id, None))
         scans.append((arr, alight.to_hub, SCAN_UNLOADED, alight.leg_id, None))
         if i + 1 < len(rs):
             nxt = rs[i + 1][0]
-            if arr + MIN_CONNECTION_H > nxt.departure_h + delay.get(nxt.trip_id, 0.0) + 1e-9:
-                return scans, (alight.to_hub, arr)
+            nxt_shift = leg_shift(delay, nxt.trip_id, nxt.seq)
+            if nxt_shift is None:
+                return scans, (alight.to_hub, max(arr, nxt.departure_h), ANOMALY_TRIP_CANCELLED)
+            if arr + MIN_CONNECTION_H > nxt.departure_h + nxt_shift + 1e-9:
+                return scans, (alight.to_hub, arr, ANOMALY_MISSED_CONNECTION)
     scans.append((_r(arr + DELIVERY_H), s.dest_hub, SCAN_DELIVERED, None, None))
     return scans, None
 
 
-def build_trip_delays(rng: random.Random, cfg: ScenarioConfig, trips: list[Trip]) -> list[TripDelay]:
-    return [TripDelay(t.trip_id, _r(rng.uniform(*TRIP_DELAY_RANGE_H)))
-            for t in trips if rng.random() < cfg.trip_delay_rate]
+def build_trip_delays(rng: random.Random, cfg: ScenarioConfig, trips: list[Trip],
+                      legs: list[TripLeg]) -> list[TripDelay]:
+    """Late trips, plus silently cancelled ones under the stress knobs. Extra random
+    draws happen only when a stress knob is on, so default scenarios are unchanged."""
+    n_legs: dict[str, int] = {}
+    for l in legs:
+        n_legs[l.trip_id] = max(n_legs.get(l.trip_id, 0), l.seq)
+    out = []
+    for t in trips:
+        if rng.random() < cfg.trip_delay_rate:
+            delay = _r(rng.uniform(*TRIP_DELAY_RANGE_H))
+            # "leg": on time for the first leg(s), late from a later one, so early scans
+            # make the trip look fine.
+            from_seq = rng.randint(2, n_legs[t.trip_id]) if cfg.delay_mode == "leg" and n_legs[t.trip_id] > 1 else 1
+            out.append(TripDelay(t.trip_id, delay, from_seq))
+    if cfg.cancel_rate > 0:
+        late = {d.trip_id for d in out}
+        out += [TripDelay(t.trip_id, 0.0, 1, True) for t in trips
+                if rng.random() < cfg.cancel_rate and t.trip_id not in late]
+    return out
 
 
 def build_shipments(rng: random.Random, cfg: ScenarioConfig, hubs: list[Hub], router: Router,
@@ -352,7 +382,9 @@ def _strand_misroute(rng, s, scans, now, path, legs_from_hub, delay):
         earliest = max(ts - 2.0, scans[k - 1][0] + 0.5)  # after the parcel reached this hub
         wrong = []
         for l in legs_from_hub.get(hub, []):
-            d = delay.get(l.trip_id, 0.0)
+            d = leg_shift(delay, l.trip_id, l.seq)
+            if d is None:
+                continue  # that trip never ran
             dep, arr = _r(l.departure_h + d), _r(l.arrival_h + d)
             if earliest <= dep <= ts + 3.0 and l.to_hub not in planned_hubs and arr < now:
                 wrong.append((l, dep, arr))
@@ -380,8 +412,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
                      trip_delays: list[TripDelay],
                      ) -> tuple[dict[str, list[RawScan]], list[TruthRecord]]:
     now = cfg.now_h
-    delay = {d.trip_id: d.delay_h for d in trip_delays}
-    by_id = {s.shipment_id: s for s in shipments}
+    delay = {d.trip_id: d for d in trip_delays}
     legs_from_hub: dict[str, list[TripLeg]] = {}
     for l in legs:
         legs_from_hub.setdefault(l.from_hub, []).append(l)
@@ -393,7 +424,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
     for s in shipments:
         all_scans[s.shipment_id], miss = actual_scans(s, paths[s.shipment_id], delay)
         if miss is not None and miss[1] <= now:
-            truth.append(TruthRecord(s.shipment_id, ANOMALY_MISSED_CONNECTION, miss[1], miss[0]))
+            truth.append(TruthRecord(s.shipment_id, miss[2], miss[1], miss[0]))
             stranded.add(s.shipment_id)
 
     # Split the anomaly budget evenly over the three individual types, and draw each
@@ -519,7 +550,7 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
     corridors = build_corridors(rng, hubs, lanes)
     trips, legs = build_trips(rng, cfg, corridors, lanes)
     shipments, paths = build_shipments(rng, cfg, hubs, Router(legs))
-    trip_delays = build_trip_delays(rng, cfg, trips)
+    trip_delays = build_trip_delays(rng, cfg, trips, legs)
     raw, truth = apply_strandings(rng, cfg, shipments, paths, legs, hubs, trip_delays)
     disruptions = build_disruptions(rng, cfg, hubs, lanes, trips)
 

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import bisect
 import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Callable, Iterable, Optional
 
 from detection.detector import observed_trip_delays
 from detection.view import OperatorView
@@ -21,6 +21,7 @@ from simulator.models import (
     DISRUPTION_HUB_CLOSURE,
     DISRUPTION_LANE_DELAY,
     DISRUPTION_TRIP_BREAKDOWN,
+    leg_shift,
 )
 
 
@@ -40,14 +41,26 @@ class EffLeg:
     can_alight: bool = True       # to_hub open at arrival
 
 
+# Extra slack demanded when a plan transfers off a trip nobody has been scanned on
+# yet: its delay is unknown, so a tight connection after it is a gamble. Chosen on
+# validation seeds 101-110 (never the reported benchmark seeds); see docs/DECISIONS.md.
+UNOBSERVED_TRANSFER_BUFFER_H = 1.5
+
+
 class Network:
-    def __init__(self, view: OperatorView, trip_delays: Optional[dict[str, float]] = None,
-                 disruptions: bool = True):
-        """`trip_delays` overrides the observed delays (the replay passes the true ones;
-        `{}` means the published timetable). `disruptions=False` ignores known
+    def __init__(self, view: OperatorView, trip_delays: dict[str, float] | None = None,
+                 disruptions: bool = True, transfer_buffer_h: float | None = None):
+        """`trip_delays` overrides the observed delays (the replay passes the true ones,
+        as TripDelay objects; `{}` means the published timetable). `disruptions=False` ignores known
         disruptions. Both together give the delay-blind view a typical TMS plans on."""
         self.now = view.now
         delay = observed_trip_delays(view) if trip_delays is None else trip_delays
+        # The buffer belongs to planning on observed delays. With explicit delays (the
+        # replay's truth, or the published timetable) every trip counts as "known".
+        self.observed: set[str] | None = set(delay) if trip_delays is None else None
+        if transfer_buffer_h is None:
+            transfer_buffer_h = UNOBSERVED_TRANSFER_BUFFER_H if trip_delays is None else 0.0
+        self.transfer_buffer_h = transfer_buffer_h
         lane_km = {l.lane_id: l.distance_km for l in view.lanes}
         known = view.disruptions if disruptions else []
         lane_delays = [d for d in known if d.kind == DISRUPTION_LANE_DELAY]
@@ -60,13 +73,16 @@ class Network:
 
         legs: list[EffLeg] = []
         for trip_id, tl in by_trip.items():
-            shift = delay.get(trip_id, 0.0)
+            extra = 0.0  # known lane delays carry on to the rest of the trip
             for l in sorted(tl, key=lambda l: l.seq):
-                dep = l.departure_h + shift
+                base = leg_shift(delay, trip_id, l.seq)
+                if base is None:
+                    break  # the trip never runs
+                dep = l.departure_h + base + extra
                 for d in lane_delays:
                     if d.lane_id == l.lane_id and d.start_h <= dep <= d.end_h:
-                        shift += d.delay_h
-                arr = l.arrival_h + shift
+                        extra += d.delay_h
+                arr = l.arrival_h + base + extra
                 if trip_id in breakdown and arr > breakdown[trip_id]:
                     break  # this leg and everything after it never completes
                 legs.append(EffLeg(l.leg_id, trip_id, l.seq, l.from_hub, l.to_hub,
@@ -83,7 +99,7 @@ class Network:
 
     def earliest_path(self, origin: str, dest: str, ready_h: float,
                       usable: Callable[[EffLeg], bool] = lambda e: True,
-                      banned_trips: Iterable[str] = ()) -> Optional[list[EffLeg]]:
+                      banned_trips: Iterable[str] = ()) -> list[EffLeg] | None:
         """Earliest-arrival itinerary (connection scan). Staying aboard a trip needs no
         connection time; changing trips needs MIN_CONNECTION_H."""
         banned = set(banned_trips)
@@ -103,7 +119,7 @@ class Network:
                 boarded_at[e.trip_id] = e
             if not e.can_alight:
                 continue  # stay aboard through a closed hub
-            at = e.arr + (0.0 if e.to_hub == dest else MIN_CONNECTION_H)
+            at = e.arr + (0.0 if e.to_hub == dest else MIN_CONNECTION_H + self._buffer(e.trip_id))
             if at < ready.get(e.to_hub, math.inf) and e.to_hub != origin:
                 ready[e.to_hub] = at
                 arrived_by[e.to_hub] = e
@@ -120,6 +136,11 @@ class Network:
             path = ride + path
             hub = first.from_hub
         return path
+
+    def _buffer(self, trip_id: str) -> float:
+        if self.observed is None or trip_id in self.observed:
+            return 0.0
+        return self.transfer_buffer_h
 
     def _trip(self, trip_id: str) -> list[EffLeg]:
         if not hasattr(self, "_by_trip"):

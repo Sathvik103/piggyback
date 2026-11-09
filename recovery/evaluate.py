@@ -51,7 +51,7 @@ class Outcome:
     reason: str
 
 
-def replay(view: OperatorView, truth: list[TruthRecord], trip_delays: dict[str, float],
+def replay(view: OperatorView, truth: list[TruthRecord], trip_delays: dict,
            detections: list[Detection], plan: Plan,
            cfg: OptionsConfig = OptionsConfig()) -> tuple[list[Outcome], dict]:
     real = Network(view, trip_delays)

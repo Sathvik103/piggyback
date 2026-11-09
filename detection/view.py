@@ -16,8 +16,8 @@ from simulator.models import (
     Disruption,
     Hub,
     Lane,
-    Scenario,
     ScanEvent,
+    Scenario,
     Shipment,
     Trip,
     TripLeg,
@@ -37,12 +37,12 @@ class OperatorView:
     disruptions: list[Disruption]
 
     @classmethod
-    def from_scenario(cls, sc: Scenario) -> "OperatorView":
+    def from_scenario(cls, sc: Scenario) -> OperatorView:
         return cls(sc.now, sc.hubs, sc.lanes, sc.corridors, sc.trips, sc.legs,
                    sc.shipments, sc.scans, sc.disruptions)
 
     @classmethod
-    def from_csv_dir(cls, path: Path) -> "OperatorView":
+    def from_csv_dir(cls, path: Path) -> OperatorView:
         path = Path(path)
         with open(path / "scenario_meta.csv", newline="", encoding="utf-8") as f:
             meta = {r["key"]: r["value"] for r in csv.DictReader(f)}
@@ -58,7 +58,11 @@ _PARSERS = {
     "float": float,
     "Optional[str]": lambda v: v or None,
     "Optional[float]": lambda v: float(v) if v else None,
+    "bool": lambda v: v == "True",
 }
+# Annotations may be spelled either way (`from __future__ import annotations` keeps them as strings).
+_PARSERS["str | None"] = _PARSERS["Optional[str]"]
+_PARSERS["float | None"] = _PARSERS["Optional[float]"]
 
 
 def read_table(path: Path, name: str) -> list:

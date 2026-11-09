@@ -19,7 +19,7 @@ from detection.view import OperatorView
 from recovery.optimizer import Plan
 from recovery.options import RecoveryOption
 from simulator.export import TABLES, TRUTH_TABLES, summary
-from simulator.models import Scenario, TruthRecord, column_names
+from simulator.models import Scenario, TripDelay, TruthRecord, column_names
 
 DEFAULT_URL = os.environ.get("DATABASE_URL", "postgresql://piggyback:piggyback@localhost:5433/piggyback")
 
@@ -102,13 +102,14 @@ class Repo:
         return OperatorView(row[0], data["hubs"], data["lanes"], data["corridors"], data["trips"],
                             data["legs"], data["shipments"], data["scans"], data["disruptions"])
 
-    def truth(self, sid: str) -> tuple[list[TruthRecord], dict[str, float]]:
+    def truth(self, sid: str) -> tuple[list[TruthRecord], dict[str, TripDelay]]:
         cols = column_names(TruthRecord)
+        dcols = column_names(TripDelay)
         with self.pool.connection() as conn:
             truth = [TruthRecord(*r) for r in conn.execute(
                 f"SELECT {', '.join(cols)} FROM sim_truth WHERE scenario_id = %s ORDER BY shipment_id", (sid,))]
-            delays = dict(conn.execute("SELECT trip_id, delay_h FROM sim_trip_delays WHERE scenario_id = %s",
-                                       (sid,)).fetchall())
+            delays = {r[0]: TripDelay(*r) for r in conn.execute(
+                f"SELECT {', '.join(dcols)} FROM sim_trip_delays WHERE scenario_id = %s", (sid,))}
         return truth, delays
 
     # ------------------------------------------------------------------ capacity
@@ -233,7 +234,7 @@ class Repo:
 
 
 def _option(row) -> RecoveryOption:
-    d = dict(zip(_OPTION_COLS, row))
+    d = dict(zip(_OPTION_COLS, row, strict=True))
     d["legs"], d["capacity_legs"] = tuple(d["legs"]), tuple(d["capacity_legs"])
     return RecoveryOption(**d)
 
