@@ -17,6 +17,7 @@ dev = ["pytest>=8", "httpx>=0.27,<1", "ruff>=0.7,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]   # the packages live at the repo root; bare `pytest` doesn't add it
 addopts = "-q"
 filterwarnings = [
     # Starlette's TestClient nags about httpx; harmless for our tests.
