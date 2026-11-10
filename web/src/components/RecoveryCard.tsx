@@ -92,7 +92,7 @@ export function RecoveryCard({ detection, startAt, nowH, planId, planChoice, sel
   const slack = detection.deadline_h - nowH
 
   return (
-    <section aria-label={`Recovery for ${id}`} className="flex min-h-0 flex-col gap-4 rounded-xl border bg-card p-5">
+    <section aria-label={`Recovery for ${id}`} className="flex min-h-0 flex-col gap-4 surface p-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
@@ -221,8 +221,8 @@ function OptionRow({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-muted/60",
-        selected && "border-s1 ring-1 ring-s1",
+        "grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-border/70 px-3.5 py-3 text-left transition-all duration-150 hover:border-border hover:bg-foreground/[0.02]",
+        selected && "border-s1/60 bg-s1/[0.05] shadow-[inset_0_1px_0_rgb(255_255_255/0.5),0_0_0_1px_color-mix(in_oklab,var(--s1)_35%,transparent)]",
       )}
     >
       <Icon className={cn("size-5", o.mode === "NONE" ? "text-muted-foreground" : o.mode === "DEDICATED" ? "text-s2" : "text-s1")} aria-hidden />

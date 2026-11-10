@@ -102,7 +102,7 @@ export function BenchmarkPage() {
         </section>
       )}
 
-      <section className="space-y-2 rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+      <section className="space-y-2 surface p-5 text-sm text-muted-foreground">
         <h2 className="text-base font-semibold text-foreground">Method and caveats</h2>
         <p>
           Every policy gets the same detections on the same scenarios, so differences come from recovery alone. Each plan is replayed against the
@@ -127,7 +127,7 @@ function RobustnessPlot({ rows }: { rows: BenchmarkSummary["robustness"] }) {
   const H = top + rows.length * rowH + 26
   const ticks = Array.from({ length: Math.round(-min / 10) + 1 }, (_, i) => min + i * 10)
   return (
-    <figure className="overflow-x-auto rounded-xl border bg-card p-4">
+    <figure className="overflow-x-auto surface p-4">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[620px]" role="img" aria-label="Penalty change versus next service under each stress condition, with 95 percent confidence intervals">
         {ticks.map((t) => (
           <g key={t}>
@@ -163,7 +163,7 @@ function Ingredients({ versus }: { versus: Record<string, Paired> }) {
   const present = INGREDIENTS.filter((i) => versus[i.key])
   const max = Math.max(...present.map((i) => Math.abs(versus[i.key].penalty_pct.mean ?? 0)), 1)
   return (
-    <div className="space-y-2.5 rounded-xl border bg-card p-5">
+    <div className="space-y-2.5 surface p-5">
       {present.map((i) => {
         const s = versus[i.key].penalty_pct
         const v = s.mean ?? 0
@@ -200,7 +200,7 @@ function PolicyTable({ data }: { data: BenchmarkSummary }) {
     ["penalty_lakh", "Penalty (₹ lakh)", (s) => (s.mean ?? 0).toFixed(2)],
   ]
   return (
-    <div className="overflow-x-auto rounded-xl border bg-card">
+    <div className="overflow-x-auto surface">
       <Table>
         <TableHeader>
           <TableRow>
@@ -226,7 +226,7 @@ function PolicyTable({ data }: { data: BenchmarkSummary }) {
 
 function Tile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-xl border bg-card px-5 py-4">
+    <div className="surface px-5 py-4">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-2xl font-semibold tabular-nums">{value}</div>
       <div className="text-xs text-muted-foreground">{sub}</div>

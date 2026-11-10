@@ -22,7 +22,7 @@ export function LabPage() {
   return (
     <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-4">
-        <section className="rounded-xl border bg-card">
+        <section className="surface">
           <h2 className="border-b px-4 py-2.5 text-sm font-semibold">Scenarios</h2>
           {scenarios.isLoading ? (
             <Skeleton className="m-4 h-24" />
@@ -69,7 +69,7 @@ function DetectionQuality() {
   const [on, setOn] = useState(false)
   const q = useQuery({ queryKey: ["eval-detections", sid, grace], queryFn: () => api.evalDetections(sid!, grace), enabled: on && Boolean(sid) })
   return (
-    <section className="rounded-xl border border-dashed bg-card p-4">
+    <section className="surface surface-dashed p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm">
           <FlaskConical className="size-4 text-muted-foreground" aria-hidden />
@@ -133,7 +133,7 @@ function CreateScenario({ onCreated }: { onCreated: (sid: string) => void }) {
   )
 
   return (
-    <form onSubmit={submit} className="space-y-4 rounded-xl border bg-card p-4" aria-label="Create a scenario">
+    <form onSubmit={submit} className="space-y-4 surface p-4" aria-label="Create a scenario">
       <h2 className="text-sm font-semibold">Generate a scenario</h2>
       {field("scenario_id", "Name", { placeholder: "seed7_tight", autoComplete: "off" })}
       <div className="grid grid-cols-2 gap-3">

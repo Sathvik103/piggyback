@@ -1,8 +1,55 @@
 # Piggyback
 
-A delay-aware shipment recovery engine. It finds stranded or misplaced shipments and recovers them by loading them onto trips that are already scheduled and have spare capacity. See `docs/DECISIONS.md` for the stack, scope and benchmark design.
+[![CI](https://github.com/Sathvik103/piggyback/actions/workflows/ci.yml/badge.svg)](https://github.com/Sathvik103/piggyback/actions/workflows/ci.yml)
 
-**Status:** all 7 steps are built: the schema, the seeded simulator, detection, recovery options, the optimizer, a replay benchmark, an HTTP API and an operator web app.
+**Delay-aware recovery of stranded shipments onto trips that are already scheduled and have spare room.**
+
+When a parcel gets stuck in a line-haul network (held, mis-sorted, misrouted, or stranded by a late truck), carriers typically rebook it onto the next scheduled service, or send a dedicated truck. Piggyback works differently:
+- it detects stranded parcels from scan histories,
+- it plans their recovery across all of them at once with a CP-SAT optimizer, on trucks that are already running with spare room,
+- it plans on how late trucks are actually running, not on the published timetable,
+- and it hands an operator a queue of explainable recommendations to accept, change or dismiss.
+
+**Result.** Over 180 paired simulated scenarios against TMS-style next-service rebooking:
+- **−25.3% realized penalty** (money spent plus value of hours late; 95% CI −22.8% to −27.9%), better in 167 of 180
+- **+4.0 pp** stranded parcels on time
+- **failed recoveries 1.9% vs 10.7%**
+
+The win holds in all six stress conditions it wasn't designed around (−17.5% to −29%), and up to 40,000 shipments plans come within 1.2% of the proven optimum. [Full results](results/REPORT.md) · [robustness](results/ROBUSTNESS.md) · [scaling](results/SCALING.md) · [how it's measured](#benchmark-piggyback-vs-what-carriers-do-today)
+
+![Demo: working the queue with the keyboard, comparing a recovery option, accepting it, then the network map and the benchmark](docs/img/demo.gif)
+
+![Operator queue: urgency-sorted stranded parcels, a recovery card comparing options with arrival vs deadline, cost and truck load, and the route on a map](docs/img/queue.png)
+
+<table><tr>
+<td><img src="docs/img/network.png" alt="Network map with the plan's piggyback routes, dedicated trucks, closures and a hub's departures with free capacity"></td>
+<td><img src="docs/img/benchmark.png" alt="Benchmark page: headline result with confidence interval and the stress-test dot plot"></td>
+</tr></table>
+
+## How it works
+
+```mermaid
+flowchart LR
+    SIM["Simulator<br/>(or real scan feed)"] -->|timetable, shipments,<br/>scans, disruptions| DB[(Postgres + PostGIS)]
+    DB --> DET["Detection<br/>scans vs booking,<br/>observed trip delays"]
+    DET --> OPT["Options<br/>piggyback · truck · local<br/>on the delay-aware network"]
+    OPT --> CPSAT["CP-SAT<br/>one option per parcel,<br/>shared truck capacity"]
+    CPSAT --> UI["Operator console<br/>accept · alternative · dismiss"]
+    UI -->|decisions hold capacity| DB
+    SIM -.->|ground truth,<br/>scoring only| BENCH["Benchmark<br/>replay vs truth"]
+    CPSAT --> BENCH
+```
+
+| Layer | What it is |
+|---|---|
+| `simulator/` | Seeded India line-haul world: 25 hubs, timetable, 3,000 shipments, scan histories cut at "now", strandings, disruptions, trip delays, upload lag, plus stress conditions. Ground truth kept apart. |
+| `detection/` | Rule-based, explainable detector reading only what an operator can see. Precision 0.92 / recall 0.97 over 30 seeds. |
+| `recovery/` | Delay- and disruption-aware planning network, recovery options, CP-SAT optimizer with greedy and do-nothing baselines, replay against the truth. |
+| `benchmark/` | Head-to-head vs carrier-style policies, plus ablations, paired 95% CIs, a sensitivity analysis and stress tests. |
+| `db/`, `api/` | Postgres as system of record (migrations, append-only decisions, capacity holds that can't be overbooked), FastAPI. |
+| `web/` | React + TypeScript operator console (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre). |
+
+**Status:** all 7 planned steps are built, with CI (lint, tests against PostGIS, Playwright end-to-end tests, benchmark smoke run) and Docker. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions and their trade-offs.
 
 ## Quick start
 
@@ -18,6 +65,10 @@ python scripts/eval_detection.py 30                        # detection over seed
 python -m benchmark.run                                    # head-to-head benchmark, 180 scenarios (~3 min) -> results/
 python -m benchmark.run --stress                           # same contest under harder conditions -> results/ROBUSTNESS.md
 (cd web && npm ci && npm run build)                        # build the web app into api/static
+(cd web && npm run e2e)                                    # Playwright end-to-end tests against the running API
+(cd web && npm run screenshots)                            # re-capture the README screenshots into docs/img
+(cd web && npm run demo) && python scripts/make_demo_gif.py # re-record docs/img/demo.gif
+python -m benchmark.scaling                                # plan time and optimality from 3k to 40k shipments
 python -m uvicorn api.app:create_app --factory --port 8000 # web app at http://localhost:8000/, API docs at /docs
 ```
 
@@ -74,7 +125,7 @@ Both next-service baselines are reactive, but they still rebook a parcel when it
 
 | Piggyback vs | Δ stranded on time | Δ realized penalty¹ | Failed recoveries | Lower penalty in |
 |---|---|---|---|---|
-| Next service, FCFS | **+4.0 pp** (±0.7) | **−25.4%** (±2.6) | **1.9% vs 10.7%** | 167 / 180 |
+| Next service, FCFS | **+4.0 pp** (±0.7) | **−25.3%** (±2.6) | **1.9% vs 10.7%** | 167 / 180 |
 | Next service + truck for late EXPRESS | −5.0 pp (±0.8) | **−45.5%** (±1.9) | 1.9% vs 9.5% | 180 / 180 |
 | Do nothing | +67.9 pp | −83% | — | 180 / 180 |
 
@@ -83,7 +134,7 @@ Both next-service baselines are reactive, but they still rebook a parcel when it
 **Where the gain comes from** (ablations, each changing one ingredient):
 - **Delay-aware planning is most of it.** Planning on observed trip delays and known disruptions, instead of the published timetable, is worth −21.4% penalty and cuts failed recoveries from 9.8% to 1.9%.
 - **The transfer buffer is a reliability feature.** Piggyback demands 1.5 h extra slack when transferring off a truck nobody has been scanned on yet. That more than halves failed recoveries (4.2% → 1.9%) for −0.6 pp on time. Its penalty saving is only significant when capacity is tight (−5.0% at 0.9). The buffer size was chosen on separate validation seeds (101–110), never on the reported ones.
-- **The CP-SAT optimizer adds −3.1% overall.** That's about zero when trucks have room, and −7.6% when capacity is tight (0.9).
+- **The CP-SAT optimizer adds −3.0% overall.** That's about zero when trucks have room, and −7.5% when capacity is tight (0.9). It matters most at scale (see below).
 - **Acting early on at-risk parcels doesn't pay.** Piggyback watches them and rebooks only once they really strand. Rebooking them early instead costs more (−1.9% ± 1.5 in favour of waiting), most clearly when trucks have room.
 
 **Disclosure:** Piggyback originally rebooked at-risk parcels proactively. The benchmark's own ablation showed that didn't pay, so the default was switched to wait-then-act and the benchmark re-run. The numbers above are for the shipped default. Proactive rebooking is still available as `include_at_risk` on the API and `--include-at-risk` on the CLI.
@@ -92,15 +143,27 @@ Both next-service baselines are reactive, but they still rebook a parcel when it
 
 | Condition (10 seeds × tightness 0.6/0.9) | Δ penalty vs next service | Δ on time | Failed: Piggyback / next service | Wins |
 |---|---|---|---|---|
-| Default world | **−19.0%** (±8.4) | **+2.6 pp** | 2.2% / 9.8% | 17 / 20 |
+| Default world | **−19.1%** (±8.5) | **+2.7 pp** | 2.1% / 9.8% | 17 / 20 |
 | Delays start mid-trip (early scans look on time) | **−17.5%** (±9.8) | **+3.0 pp** | 1.2% / 9.1% | 18 / 20 |
-| 3% of trips silently cancelled | **−19.4%** (±5.5) | **+3.4 pp** | 6.2% / 14.9% | 19 / 20 |
+| 3% of trips silently cancelled | **−19.5%** (±5.5) | **+3.4 pp** | 6.2% / 14.9% | 19 / 20 |
 | Spare room scarce on busy corridors and evenings | **−21.1%** (±7.5) | **+3.4 pp** | 2.4% / 9.7% | 18 / 20 |
-| 3× noisier scan uploads | **−19.5%** (±7.5) | **+2.8 pp** | 2.2% / 9.7% | 17 / 20 |
-| Twice as many late trips | **−29.0%** (±9.0) | **+6.2 pp** | 3.6% / 14.4% | 19 / 20 |
+| 3× noisier scan uploads | **−19.3%** (±7.5) | **+2.6 pp** | 2.2% / 9.7% | 17 / 20 |
+| Twice as many late trips | **−29.2%** (±9.0) | **+6.1 pp** | 3.5% / 14.4% | 19 / 20 |
 
 - **The win holds in every condition.** Delays starting mid-trip are the hardest case for delay awareness, which is still worth −11.8% there. In that condition the transfer buffer doesn't help.
 - **Silent cancellations** triple Piggyback's failures, since no planner can see them coming, but it still fails at less than half the baseline's rate.
+
+**Scaling.** `python -m benchmark.scaling` grows the network from 3,000 to 40,000 shipments with nearly full trucks (3 seeds each; full table in [results/SCALING.md](results/SCALING.md)). Plan time is what an operator waits for after pressing re-plan.
+
+| Shipments | Stranded parcels | Plan time | CP-SAT proved optimal | Worst gap to optimum | Greedy's extra cost |
+|---|---|---|---|---|---|
+| 3,000 | 176 | 0.2 s | 3 / 3 | 0% | +6.8% |
+| 6,000 | 304 | 1.3 s | 3 / 3 | 0% | +10.0% |
+| 10,000 | 570 | 22 s | 1 / 3 | 0.6% | +23.6% |
+| 20,000 | 1,165 | 33 s | 0 / 3 | 1.2% | +39.9% |
+| 40,000 | 2,832 | 37 s | 0 / 3 | 1.2% | +41.5% |
+
+Detection and option generation stay under 6 s even at 40,000 shipments. Beyond about 6,000, CP-SAT uses its 30 s limit, but its lower bound proves the plan is within 1.2% of the best possible. Greedy, by contrast, falls 24–42% behind as contention grows. Warm-starting CP-SAT from the greedy plan was tried and dropped: it was neutral up to 20,000 and made plans 11.5% worse at 40,000. A greedy safety net replaces it, so CP-SAT never returns anything worse than greedy.
 
 These are results on Piggyback's own simulator. The benchmark is built to be fair: baselines get a second chance at parcels that strand later, and every number is reproducible from its seed. It is not evidence from a real network.
 
@@ -171,7 +234,7 @@ docs/        DECISIONS.md
 - The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and web app need Postgres.
 - Detections aren't stored: they're recomputed (and cached) from the scans, which is cheap and keeps them consistent with the detector's code.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
-- The web app has no automated browser tests yet. CI lints, type-checks and builds it, and the pytest suite checks that it's served. The queue, decisions, map and benchmark pages were checked by hand in a browser.
+- The end-to-end tests cover each page's main path (accept, pick an alternative, dismiss, map layers, hub panel, benchmark, form validation) and fail on any browser console error. They don't yet cover mobile layouts or every edge case.
 - There's no login: decisions are recorded as "operator". It's a local, single-user tool for now.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.

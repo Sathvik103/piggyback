@@ -23,9 +23,12 @@ const GRACE_OPTIONS = [0.5, 1, 2, 3, 4, 6]
 
 export function AppShell() {
   return (
-    <div className="flex h-dvh min-h-0 bg-muted/30 text-foreground">
-      <nav aria-label="Main" className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r bg-background py-3">
-        <div className="mb-3 flex size-9 items-center justify-center rounded-lg bg-s1 text-sm font-semibold text-white" aria-hidden>
+    <div className="app-backdrop flex h-dvh min-h-0 text-foreground">
+      <nav aria-label="Main" className="glass-bar flex w-[76px] shrink-0 flex-col items-center gap-1.5 border-r border-border/60 py-3">
+        <div
+          className="mb-4 flex size-9 items-center justify-center rounded-xl bg-gradient-to-b from-[#5b87d4] to-[#2f5ea8] text-[13px] font-semibold tracking-tight text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_12px_-4px_rgb(47_94_168/0.55)]"
+          aria-hidden
+        >
           Pb
         </div>
         {NAV.map(({ to, label, icon: Icon, end }) => (
@@ -35,8 +38,9 @@ export function AppShell() {
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex w-16 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                isActive && "bg-muted font-medium text-foreground",
+                "flex w-[62px] flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground",
+                isActive &&
+                  "surface font-medium text-foreground !rounded-xl",
               )
             }
           >
@@ -78,7 +82,7 @@ function TopBar() {
     )
 
   return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-background px-4 py-2.5">
+    <header className="glass-bar sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 px-5 py-2.5">
       <div className="text-[15px] font-semibold tracking-tight">Piggyback</div>
       <Select value={sid ?? undefined} onValueChange={setSid}>
         <SelectTrigger size="sm" className="w-44" aria-label="Scenario">

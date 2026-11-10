@@ -116,7 +116,7 @@ export function QueuePage() {
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-        <section aria-label="Exceptions queue" className="flex min-h-[320px] flex-col overflow-hidden rounded-xl border bg-card">
+        <section aria-label="Exceptions queue" className="flex min-h-[320px] flex-col overflow-hidden surface">
           <div className="space-y-2 border-b p-3">
             <ToggleGroup type="single" value={view} onValueChange={(v) => v && setView(v as View)} variant="outline" size="sm" className="w-full">
               <ToggleGroupItem value="open" className="flex-1">Open {groups.open.length}</ToggleGroupItem>
@@ -174,7 +174,7 @@ export function QueuePage() {
           <Empty title={detections.isLoading ? "Loading…" : "Queue clear"} body={detections.isLoading ? "" : "Every flagged parcel has a decision."} />
         )}
 
-        <aside aria-label="Route" className="hidden min-h-[320px] overflow-hidden rounded-xl border bg-card xl:block">
+        <aside aria-label="Route" className="hidden min-h-[320px] overflow-hidden surface xl:block">
           {net.data && selected ? (
             <RouteContext shipmentId={selected.shipment_id} hub={selected.suspected_hub} option={option} geo={net.data} counts={counts} closed={closed} />
           ) : (
@@ -227,7 +227,10 @@ function QueueRow({ d, nowH, choice, active, onClick }: { d: Detection; nowH: nu
       aria-selected={active}
       data-id={d.shipment_id}
       onClick={onClick}
-      className={cn("block w-full border-b px-3 py-2.5 text-left transition-colors hover:bg-muted/60", active && "bg-muted")}
+      className={cn(
+        "block w-full border-b border-border/50 px-3.5 py-2.5 text-left transition-colors hover:bg-foreground/[0.025]",
+        active && "bg-s1/[0.06] shadow-[inset_2px_0_0_var(--s1)]",
+      )}
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-medium">
@@ -253,7 +256,7 @@ function QueueRow({ d, nowH, choice, active, onClick }: { d: Detection; nowH: nu
 
 function Kpi({ label, value, tone, hint, loading }: { label: string; value: number; tone?: "critical"; hint?: string; loading?: boolean }) {
   return (
-    <div className="rounded-xl border bg-card px-4 py-3" title={hint}>
+    <div className="surface px-4 py-3" title={hint}>
       <div className="text-xs text-muted-foreground">{label}</div>
       {loading ? <Skeleton className="mt-1 h-7 w-12" /> : <div className={cn("text-2xl font-semibold tabular-nums", tone === "critical" && "text-critical")}>{value}</div>}
     </div>

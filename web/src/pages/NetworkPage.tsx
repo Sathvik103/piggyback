@@ -55,13 +55,13 @@ export function NetworkPage() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="relative min-h-[420px] overflow-hidden rounded-xl border bg-card">
+      <section className="relative min-h-[420px] overflow-hidden surface">
         {net.data ? (
           <NetworkMap geo={net.data} counts={counts} selectedHub={hub} closedHubs={closed} hops={hops} dedicated={dedicated} delayedLanes={delayed} onHubClick={setHub} />
         ) : (
           <Skeleton className="h-full w-full" />
         )}
-        <div className="absolute bottom-3 left-3 grid gap-1 rounded-lg border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+        <div className="absolute top-3 left-3 grid gap-1 glass-bar rounded-xl border px-3 py-2 text-xs text-muted-foreground shadow-sm">
           <span className="flex items-center gap-2"><span className="inline-block size-2.5 rounded-full bg-s1" />Hub · size = parcels needing a decision</span>
           <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-[3px] border-s1" />Piggyback hop{plan.data ? ` (plan ${plan.data.plan_id})` : ""} · width = parcels</span>
           <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-2 border-dashed border-s2" />Dedicated truck</span>
@@ -74,9 +74,9 @@ export function NetworkPage() {
         {hub ? (
           <HubPanel hub={hub} onClose={() => setHub(null)} startAt={summary.data?.start_at} nowH={summary.data?.now_h ?? 0} />
         ) : (
-          <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Select a hub on the map to see what's stuck there and which trucks leave soon with room.</div>
+          <div className="surface p-4 text-sm text-muted-foreground">Select a hub on the map to see what's stuck there and which trucks leave soon with room.</div>
         )}
-        <section className="rounded-xl border bg-card p-4">
+        <section className="surface p-4">
           <h2 className="mb-2 text-sm font-semibold">Known disruptions</h2>
           <ul className="space-y-2 text-sm">
             {(disruptions.data ?? []).map((d) => (
@@ -106,7 +106,7 @@ function HubPanel({ hub, onClose, startAt, nowH }: { hub: string; onClose: () =>
   const d = q.data
   const open = d?.detections.filter((x) => !x.decision) ?? []
   return (
-    <section className="rounded-xl border bg-card p-4" aria-label={`Hub ${hub}`}>
+    <section className="surface p-4" aria-label={`Hub ${hub}`}>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <h2 className="font-semibold">{d ? `${d.hub.name} (${hub})` : hub}</h2>

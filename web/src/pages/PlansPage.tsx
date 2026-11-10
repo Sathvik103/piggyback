@@ -48,7 +48,7 @@ export function PlansPage() {
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[300px_minmax(0,1fr)]">
       <aside className="flex min-h-0 flex-col gap-4">
-        <section className="space-y-3 rounded-xl border bg-card p-4">
+        <section className="space-y-3 surface p-4">
           <h2 className="text-sm font-semibold">Run a plan</h2>
           <Select value={solver} onValueChange={setSolver}>
             <SelectTrigger className="w-full" aria-label="Solver"><SelectValue /></SelectTrigger>
@@ -68,7 +68,7 @@ export function PlansPage() {
           </Button>
           <p className="text-xs text-muted-foreground">Covers every flagged parcel without a decision, against truck space accepted recoveries haven't taken.</p>
         </section>
-        <section className="min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card">
+        <section className="min-h-0 flex-1 overflow-y-auto surface">
           <h2 className="border-b px-4 py-2.5 text-sm font-semibold">Saved plans</h2>
           {plans.isLoading && <Skeleton className="m-4 h-24" />}
           {plans.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No plans yet.</p>}
@@ -125,7 +125,7 @@ function PlanDetail({ planId }: { planId: string }) {
         <Stat label="Solve time" value={`${p.solve_s.toFixed(2)} s`} sub={`${words(p.status)} · ${p.options_considered} options`} />
       </div>
 
-      <section className="rounded-xl border border-dashed bg-card p-4">
+      <section className="surface surface-dashed p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm">
             <FlaskConical className="size-4 text-muted-foreground" aria-hidden />
@@ -145,7 +145,7 @@ function PlanDetail({ planId }: { planId: string }) {
         ) : <Skeleton className="mt-3 h-16" />)}
       </section>
 
-      <section className="rounded-xl border bg-card">
+      <section className="surface">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
           <h2 className="text-sm font-semibold">Choices</h2>
           <div className="flex flex-wrap gap-1.5">
@@ -195,9 +195,9 @@ function DecisionLog() {
   const { sid } = useScenario()
   const log = useDecisions(sid, true)
   if (!log.data) return <Skeleton className="h-64" />
-  if (!log.data.length) return <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">No decisions yet. Accept or dismiss parcels in the queue.</p>
+  if (!log.data.length) return <p className="surface p-6 text-sm text-muted-foreground">No decisions yet. Accept or dismiss parcels in the queue.</p>
   return (
-    <section className="rounded-xl border bg-card">
+    <section className="surface">
       <Table>
         <TableHeader>
           <TableRow>
@@ -228,7 +228,7 @@ function DecisionLog() {
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "critical" }) {
   return (
-    <div className="rounded-xl border bg-card px-4 py-3">
+    <div className="surface px-4 py-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("text-xl font-semibold tabular-nums", tone === "good" && "text-good", tone === "critical" && "text-critical")}>{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}

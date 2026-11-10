@@ -138,16 +138,25 @@ A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_dis
 - **Default switched after benchmarking (disclosed).** Piggyback first rebooked AT_RISK parcels proactively. The fair benchmark showed that didn't pay: it reserves capacity on a prediction that waiting confirms more cheaply. So the default became wait-then-act and the grid was re-run. Proactive rebooking is still available (`include_at_risk` / `--include-at-risk`) and is benchmarked as an ablation.
 - **Statistics.** Comparisons are paired per scenario. The report shows mean differences with 95% t-intervals, and calls a difference significant only if its interval excludes 0. A sensitivity table re-prices the same outcomes at ₹50–1000 per late hour.
 - **Findings** (full numbers in `results/REPORT.md` and the README):
-  - **vs next service FCFS:** −25.4% realized penalty, +4.0 pp on time, and failed recoveries 1.9% vs 10.7%. Better in 167/180 scenarios.
+  - **vs next service FCFS:** −25.3% realized penalty, +4.0 pp on time, and failed recoveries 1.9% vs 10.7%. Better in 167/180 scenarios.
   - **vs the truck rule:** −45.5% penalty, though 5.0 pp fewer parcels on time, because it spends about 9× less.
   - **Delay awareness carries most of the gain** (−21.4%).
   - **Transfer buffer:** halves failures; penalty −1.8% overall (not significant), −5.0% when capacity is tight.
-  - **CP-SAT over greedy:** −3.1% overall, −7.6% when capacity is tight.
+  - **CP-SAT over greedy:** −3.0% overall, −7.5% when capacity is tight.
   - **Proactive rebooking:** costs more (−1.9% ± 1.5 in favour of waiting).
 - **Robustness** (`python -m benchmark.run --stress`, `results/ROBUSTNESS.md`): the same contest under conditions Piggyback wasn't designed around. Each changes one thing from the default world: delays that start mid-trip (so early scans look on time), 3% of trips silently cancelled, spare capacity scarce on busy corridors and evenings, 3× noisier scans, and twice as many late trips. 10 seeds × tightness 0.6/0.9 per condition.
-  - **Result:** Piggyback beats next service FCFS on realized penalty in every condition (−17.5% to −29.0%, all significant). Failed recoveries are 2–4× lower, and it wins 17–19 of 20 scenarios per condition. The gap is widest with twice as many late trips.
+  - **Result:** Piggyback beats next service FCFS on realized penalty in every condition (−17.5% to −29.2%, all significant). Failed recoveries are 2–4× lower, and it wins 17–19 of 20 scenarios per condition. The gap is widest with twice as many late trips.
   - **Weak spots:** delays that start mid-trip blunt delay awareness (−11.8% vs −16% in the default world), and there the transfer buffer stops helping. Silent cancellations push Piggyback's failure rate to 6.2%, still under half the baseline's 14.9%.
   - **The optimizer's contribution** is significant in every condition (−4.7% to −8.2%), largest when capacity is scarce at peaks.
+
+## Scaling and the solver
+
+`python -m benchmark.scaling` grows the network from 3,000 to 40,000 shipments (3 seeds each, capacity tightness 0.9, CP-SAT limit 30 s, 8 workers, one machine) and times what an operator waits for after re-planning.
+- **Up to about 6,000 shipments** (about 300 stranded parcels), CP-SAT proves optimality in 1.3 s or less.
+- **Beyond that** it uses the full limit. Its lower bound still proves every plan is within 1.2% of the optimum, worst seed at 40,000 shipments, where greedy is 24–42% worse.
+- **Detection and option generation** grow roughly linearly, to under 6 s at 40,000.
+
+**Warm start tried and dropped.** Hinting the greedy plan to CP-SAT seemed obvious: it guarantees the search starts from greedy's quality. Measured on the same instances, it was neutral up to 20,000 shipments and anchored the search badly at 40,000, where the plan was 11.5% worse than a cold start and the provable gap grew to 14.5%. The shipped solver starts cold and keeps a greedy safety net instead: if a time-limited run ends worse than greedy, it returns greedy's plan (status `FEASIBLE_GREEDY`). On these instances the net never triggered.
 
 ## Calibration assumptions (not real-world data)
 
