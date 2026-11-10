@@ -136,6 +136,8 @@ export function NetworkMap(props: NetworkMapProps) {
       m.setPaintProperty("booked", "line-color", cssVar("--muted-foreground"))
       m.setPaintProperty("recovery", "line-color", cssVar("--s1"))
       m.setPaintProperty("delays", "line-color", cssVar("--serious"))
+      // Marks a map whose layers loaded and accepted their colours (end-to-end tests check it).
+      if (container.current) container.current.dataset.mapReady = "true"
     })
   }, [resolvedTheme])
 
