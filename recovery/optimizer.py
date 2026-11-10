@@ -69,7 +69,16 @@ def solve_greedy(options: dict[str, list[RecoveryOption]],
 
 def solve_cpsat(options: dict[str, list[RecoveryOption]],
                 capacity: dict[str, tuple[float, float]],
-                time_limit_s: float = 10.0, workers: int = 8, seed: int = 0) -> Plan:
+                time_limit_s: float = 10.0, workers: int = 8, seed: int = 0,
+                greedy_floor: bool = True) -> Plan:
+    """`greedy_floor`: if a run that hits the time limit has found something worse than the
+    greedy plan, return greedy's instead, so CP-SAT is never worse than greedy.
+
+    (Hinting the greedy plan as a warm start was tried and dropped: neutral up to 20k
+    shipments, and it anchored the search so that at 40k the plan was 11.5% worse than
+    a cold start. See docs/DECISIONS.md.)
+
+    Stats include `gap_pct`: how far the plan can be, at most, from the true optimum."""
     t0 = time.perf_counter()
     m = cp_model.CpModel()
     x: dict[str, cp_model.IntVar] = {}
@@ -94,6 +103,7 @@ def solve_cpsat(options: dict[str, list[RecoveryOption]],
     m.minimize(sum(round(o.penalty_inr) * x[o.option_id]
                    for opts in options.values() for o in opts))
 
+
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     solver.parameters.num_search_workers = workers
@@ -103,8 +113,16 @@ def solve_cpsat(options: dict[str, list[RecoveryOption]],
         raise RuntimeError(f"CP-SAT returned {solver.status_name(status)}")
     chosen = {sid: next(o for o in opts if solver.value(x[o.option_id]))
               for sid, opts in options.items()}
-    return _plan("cpsat", chosen, solver.status_name(status), t0,
-                 bound_inr=round(solver.best_objective_bound, 2),
+    obj, bound = solver.objective_value, solver.best_objective_bound
+    status_name = solver.status_name(status)
+    if greedy_floor and status != cp_model.OPTIMAL:
+        greedy = solve_greedy(options, capacity)
+        if greedy.objective_inr < sum(o.penalty_inr for o in chosen.values()):
+            chosen, status_name = greedy.chosen, "FEASIBLE_GREEDY"
+            obj = sum(round(o.penalty_inr) for o in chosen.values())
+    return _plan("cpsat", chosen, status_name, t0,
+                 bound_inr=round(bound, 2),
+                 gap_pct=round(100 * (obj - bound) / obj, 3) if obj else 0.0,
                  contested_legs=sum(1 for os_ in users.values()
                                     if len({o.shipment_id for o in os_}) > 1))
 

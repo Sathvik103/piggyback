@@ -12,8 +12,16 @@
 $ErrorActionPreference = "Stop"
 
 function Test-Engine {
-    docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
-    return $LASTEXITCODE -eq 0
+    # Windows PowerShell 5.1 turns a native command's stderr into a terminating error
+    # under ErrorActionPreference=Stop, so relax it just for this probe.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        docker info --format '{{.ServerVersion}}' *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $prev
+    }
 }
 
 if (-not (Test-Engine)) {

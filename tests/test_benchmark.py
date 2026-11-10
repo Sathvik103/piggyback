@@ -122,6 +122,16 @@ def test_run_case_scores_every_policy_on_the_same_scenario():
     assert nothing["unrecovered"] == nothing["stranded"] and nothing["cost_inr"] == 0
 
 
+def test_scaling_measures_each_stage(tmp_path):
+    from benchmark.scaling import measure, write_report
+    r = measure(800, 1, 0.9, time_limit_s=10)
+    assert r["flagged"] > 0 and r["options"] >= r["flagged"]
+    assert r["cpsat_status"] in ("OPTIMAL", "FEASIBLE")
+    assert r["gap_pct"] >= -0.1  # greedy never beats the optimum (CP-SAT rounds penalties to whole rupees)
+    text = write_report([r], tmp_path / "SCALING.md", 0.9, 10).read_text(encoding="utf-8")
+    assert "| 800 |" in text
+
+
 def test_ci_and_paired_deltas():
     m, h = ci([1.0, 2.0, 3.0])
     assert m == 2.0 and h == pytest.approx(4.30 * 1.0 / 3 ** 0.5)
