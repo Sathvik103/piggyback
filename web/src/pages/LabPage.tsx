@@ -20,7 +20,7 @@ export function LabPage() {
   const { sid, setSid } = useScenario()
   const scenarios = useScenarios()
   return (
-    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-4">
         <section className="surface">
           <h2 className="border-b px-4 py-2.5 text-sm font-semibold">Scenarios</h2>

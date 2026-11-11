@@ -22,7 +22,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "e2e", testIgnore: /screenshots|demo/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    { name: "e2e", testIgnore: /screenshots|demo|mobile/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    { name: "mobile", testMatch: /mobile/, use: { ...devices["Pixel 7"] } },
     { name: "demo", testMatch: /demo/, use: { ...devices["Desktop Chrome"], colorScheme: "light" } },
     { name: "screenshots", testMatch: /screenshots/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, colorScheme: "light" } },
   ],

@@ -25,7 +25,7 @@ export function BenchmarkPage() {
   const m = (p: typeof hero, k: string) => (p[k] as Stat).mean ?? 0
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8 p-6">
+    <div className="mx-auto max-w-5xl space-y-8 p-4 sm:p-6">
       <header className="space-y-1 border-b pb-6">
         <p className="text-sm text-muted-foreground">
           Piggyback vs TMS-style next-service rebooking · {d.meta!.scenarios} paired simulated scenarios
@@ -127,7 +127,7 @@ function RobustnessPlot({ rows }: { rows: BenchmarkSummary["robustness"] }) {
   const H = top + rows.length * rowH + 26
   const ticks = Array.from({ length: Math.round(-min / 10) + 1 }, (_, i) => min + i * 10)
   return (
-    <figure className="overflow-x-auto surface p-4">
+    <figure className="overflow-x-auto surface p-4 focus-visible:outline-2 focus-visible:outline-ring/50" tabIndex={0}>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[620px]" role="img" aria-label="Penalty change versus next service under each stress condition, with 95 percent confidence intervals">
         {ticks.map((t) => (
           <g key={t}>

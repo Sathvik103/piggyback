@@ -210,7 +210,7 @@ Only the `/evaluation/` routes read ground truth. A test checks that no operator
 - **Benchmark:** the head-to-head results from `/benchmark`: the headline with its confidence interval, the stress plot, where the gain comes from, all policies, results by capacity tightness, and the method.
 - **Lab:** the scenario list; generating new ones (including the stress conditions); and detection precision and recall against the truth.
 
-Times show in IST, relative to each scenario's simulated "now". Light and dark themes are both supported. Only the plan replay and detection scoring read ground truth, and both are opt-in and visibly marked as lab features. The map draws the lane network without third-party basemap tiles, so it works offline and avoids drawing contested borders.
+Times show in IST, relative to each scenario's simulated "now". Light and dark themes are both supported. On phones the side rail becomes a bottom tab bar, panels stack, tapping a parcel or hub scrolls its detail into view, and the map legend folds away. Only the plan replay and detection scoring read ground truth, and both are opt-in and visibly marked as lab features. The map draws the lane network without third-party basemap tiles, so it works offline and avoids drawing contested borders.
 
 ## Layout
 
@@ -234,7 +234,7 @@ docs/        DECISIONS.md
 - The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and web app need Postgres.
 - Detections aren't stored: they're recomputed (and cached) from the scans, which is cheap and keeps them consistent with the detector's code.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
-- The end-to-end tests cover each page's main path (accept, pick an alternative, dismiss, map layers, hub panel, benchmark, form validation) and fail on any browser console error. Every page is also checked with axe against WCAG 2.1 A/AA in light and dark themes (the WebGL map canvas is excluded; its hubs are keyboard-focusable buttons). They don't yet cover mobile layouts or every edge case.
+- The end-to-end tests cover each page's main path (accept, pick an alternative, dismiss, map layers, hub panel, benchmark, form validation) and fail on any browser console error. Every page is also checked with axe against WCAG 2.1 A/AA in light and dark themes (the WebGL map canvas is excluded; its hubs are keyboard-focusable buttons). A phone project (Pixel 7, touch) walks every page through the bottom tab bar, checks nothing scrolls sideways, runs axe again, and accepts a recovery by tap. They don't cover every edge case.
 - There's no login: decisions are recorded as "operator". It's a local, single-user tool for now.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.

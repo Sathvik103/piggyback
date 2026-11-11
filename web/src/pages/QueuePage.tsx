@@ -82,6 +82,14 @@ export function QueuePage() {
     return () => window.removeEventListener("keydown", onKey)
   }, [move])
 
+  // On narrow screens the card sits below the list: bring it into view after a tap.
+  const pick = useCallback((id: string) => {
+    setSelectedId(id)
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setTimeout(() => document.querySelector(`[aria-label="Recovery for ${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+    }
+  }, [])
+
   // After a decision the decided row leaves the open list; select its neighbour.
   const onDecided = useCallback(() => {
     const next = list[index + 1] ?? list[index - 1]
@@ -100,7 +108,7 @@ export function QueuePage() {
   if (!sid) return <Empty title="No scenario yet" body="Create one in the Lab to get started." />
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-4">
+    <div className="flex min-h-full flex-col gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi label="Needs a decision" value={groups.open.length} loading={detections.isLoading} />
         <Kpi label="Due within 12 h" value={dueSoon} tone={dueSoon ? "critical" : undefined} loading={detections.isLoading} />
@@ -116,7 +124,7 @@ export function QueuePage() {
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-        <section aria-label="Exceptions queue" className="flex min-h-[320px] flex-col overflow-hidden surface">
+        <section aria-label="Exceptions queue" className="flex h-[55dvh] min-h-[320px] flex-col overflow-hidden surface lg:h-auto">
           <div className="space-y-2 border-b p-3">
             <ToggleGroup type="single" value={view} onValueChange={(v) => v && setView(v as View)} variant="outline" size="sm" className="w-full">
               <ToggleGroupItem value="open" className="flex-1">Open {groups.open.length}</ToggleGroupItem>
@@ -150,10 +158,10 @@ export function QueuePage() {
               : list.length === 0
                 ? <p className="p-6 text-center text-sm text-muted-foreground">{view === "open" ? "Nothing waiting. The queue is clear." : "None here."}</p>
                 : list.map((d) => (
-                    <QueueRow key={d.shipment_id} d={d} nowH={nowH} choice={choiceBy[d.shipment_id]} active={d.shipment_id === selectedId} onClick={() => setSelectedId(d.shipment_id)} />
+                    <QueueRow key={d.shipment_id} d={d} nowH={nowH} choice={choiceBy[d.shipment_id]} active={d.shipment_id === selectedId} onClick={() => pick(d.shipment_id)} />
                   ))}
           </div>
-          <div className="border-t px-3 py-2 text-xs text-muted-foreground">
+          <div className="border-t px-3 py-2 text-xs text-muted-foreground pointer-coarse:hidden">
             <Kbd>J</Kbd> <Kbd>K</Kbd> move · <Kbd>A</Kbd> accept · <Kbd>D</Kbd> dismiss
           </div>
         </section>

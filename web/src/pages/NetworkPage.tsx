@@ -1,5 +1,5 @@
 import { AlertTriangle, Ban, Truck, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { type Hop, NetworkMap } from "@/components/NetworkMap"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,14 @@ export function NetworkPage() {
   const disruptions = useDisruptions(sid)
   const { plan } = useLatestPlan(sid)
   const [hub, setHub] = useState<string | null>(null)
+  const [legend, setLegend] = useState(false)
+  // On narrow screens the hub panel sits below the map: bring it into view after a tap.
+  const pickHub = useCallback((id: string) => {
+    setHub(id)
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setTimeout(() => document.querySelector(`[aria-label="Hub ${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+    }
+  }, [])
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
@@ -54,14 +62,17 @@ export function NetworkPage() {
   )
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="relative min-h-[420px] overflow-hidden surface">
+    <div className="grid min-h-full grid-cols-1 gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <section className="relative h-[62dvh] min-h-[360px] overflow-hidden surface lg:h-auto lg:min-h-[420px]">
         {net.data ? (
-          <NetworkMap geo={net.data} counts={counts} selectedHub={hub} closedHubs={closed} hops={hops} dedicated={dedicated} delayedLanes={delayed} onHubClick={setHub} />
+          <NetworkMap geo={net.data} counts={counts} selectedHub={hub} closedHubs={closed} hops={hops} dedicated={dedicated} delayedLanes={delayed} onHubClick={pickHub} />
         ) : (
           <Skeleton className="h-full w-full" />
         )}
-        <div className="absolute top-3 left-3 grid gap-1 glass-bar rounded-xl border px-3 py-2 text-xs text-muted-foreground shadow-sm">
+        <Button variant="outline" size="sm" className="glass-bar absolute top-3 left-3 md:hidden" aria-expanded={legend} aria-controls="map-legend" onClick={() => setLegend((v) => !v)}>
+          {legend ? "Hide legend" : "Legend"}
+        </Button>
+        <div id="map-legend" className={cn("absolute top-12 left-3 gap-1 glass-bar rounded-xl border px-3 py-2 text-xs text-muted-foreground shadow-sm md:top-3 md:grid", legend ? "grid" : "hidden")}>
           <span className="flex items-center gap-2"><span className="inline-block size-2.5 rounded-full bg-s1" />Hub · size = parcels needing a decision</span>
           <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-[3px] border-s1" />Piggyback hop{plan.data ? ` (plan ${plan.data.plan_id})` : ""} · width = parcels</span>
           <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-2 border-dashed border-s2" />Dedicated truck</span>

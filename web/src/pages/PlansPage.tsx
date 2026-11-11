@@ -46,7 +46,7 @@ export function PlansPage() {
     )
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+    <div className="grid min-h-full grid-cols-1 gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)]">
       <aside className="flex min-h-0 flex-col gap-4">
         <section className="space-y-3 surface p-4">
           <h2 className="text-sm font-semibold">Run a plan</h2>
@@ -60,7 +60,7 @@ export function PlansPage() {
             <input type="checkbox" className="mt-1" checked={atRisk} onChange={(e) => setAtRisk(e.target.checked)} />
             <span>
               Also rebook at-risk parcels now
-              <span className="block text-xs text-muted-foreground">Off by default: the benchmark found acting early costs more than waiting.</span>
+              <span className="block text-xs text-muted-foreground">Off by default: in the benchmark, acting early did no better than waiting.</span>
             </span>
           </label>
           <Button className="w-full" onClick={run} disabled={!sid || create.isPending}>
@@ -68,7 +68,7 @@ export function PlansPage() {
           </Button>
           <p className="text-xs text-muted-foreground">Covers every flagged parcel without a decision, against truck space accepted recoveries haven't taken.</p>
         </section>
-        <section className="min-h-0 flex-1 overflow-y-auto surface">
+        <section className="max-h-64 overflow-y-auto surface lg:max-h-none lg:min-h-0 lg:flex-1">
           <h2 className="border-b px-4 py-2.5 text-sm font-semibold">Saved plans</h2>
           {plans.isLoading && <Skeleton className="m-4 h-24" />}
           {plans.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No plans yet.</p>}

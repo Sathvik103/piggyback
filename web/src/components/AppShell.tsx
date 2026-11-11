@@ -23,8 +23,8 @@ const GRACE_OPTIONS = [0.5, 1, 2, 3, 4, 6]
 
 export function AppShell() {
   return (
-    <div className="app-backdrop flex h-dvh min-h-0 text-foreground">
-      <nav aria-label="Main" className="glass-bar flex w-[76px] shrink-0 flex-col items-center gap-1.5 border-r border-border/60 py-3">
+    <div className="app-backdrop flex h-dvh min-h-0 flex-col text-foreground md:flex-row">
+      <nav aria-label="Main" className="glass-bar hidden w-[76px] shrink-0 flex-col items-center gap-1.5 border-r border-border/60 py-3 md:flex">
         <div
           className="mb-4 flex size-9 items-center justify-center rounded-xl bg-gradient-to-b from-[#5b87d4] to-[#2f5ea8] text-[13px] font-semibold tracking-tight text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_12px_-4px_rgb(47_94_168/0.55)]"
           aria-hidden
@@ -51,13 +51,41 @@ export function AppShell() {
         <div className="flex-1" />
         <ThemeToggle />
       </nav>
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
         <main className="min-h-0 flex-1 overflow-auto focus-visible:outline-none" tabIndex={0}>
           <Outlet />
         </main>
       </div>
+      <BottomNav />
     </div>
+  )
+}
+
+/** Phones: the same destinations as a tab bar along the bottom edge. */
+function BottomNav() {
+  return (
+    <nav aria-label="Main" className="glass-bar grid shrink-0 grid-cols-5 border-t border-border/60 px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden">
+      {NAV.map(({ to, label, icon: Icon, end }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          className={({ isActive }) =>
+            cn("flex flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px] text-muted-foreground transition-colors", isActive && "font-medium text-foreground")
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <span className={cn("flex h-7 w-12 items-center justify-center rounded-full transition-colors", isActive && "bg-foreground/[0.07]")}>
+                <Icon className="size-5" aria-hidden />
+              </span>
+              {label}
+            </>
+          )}
+        </NavLink>
+      ))}
+    </nav>
   )
 }
 
@@ -82,10 +110,10 @@ function TopBar() {
     )
 
   return (
-    <header className="glass-bar sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 px-5 py-2.5">
+    <header className="glass-bar sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-4 py-2.5 md:gap-x-4 md:px-5">
       <div className="text-[15px] font-semibold tracking-tight">Piggyback</div>
       <Select value={sid ?? undefined} onValueChange={setSid}>
-        <SelectTrigger size="sm" className="w-44" aria-label="Scenario">
+        <SelectTrigger size="sm" className="w-32 sm:w-44" aria-label="Scenario">
           <SelectValue placeholder="Scenario" />
         </SelectTrigger>
         <SelectContent>
@@ -104,9 +132,9 @@ function TopBar() {
           <TooltipContent>Simulated "now". Every time in the app is relative to it.</TooltipContent>
         </Tooltip>
       )}
-      <div className="flex-1" />
+      <div className="hidden flex-1 md:block" />
       <label className="flex items-center gap-2 text-sm text-muted-foreground">
-        Grace
+        <span className="hidden sm:inline">Grace</span>
         <Select value={String(grace)} onValueChange={(v) => setGrace(Number(v))}>
           <SelectTrigger size="sm" className="w-20" aria-label="Detection grace period">
             <SelectValue />
@@ -120,7 +148,7 @@ function TopBar() {
           </SelectContent>
         </Select>
       </label>
-      <span className="text-sm text-muted-foreground">
+      <span className="hidden text-sm text-muted-foreground lg:inline">
         {latest ? (
           <>
             Plan <span className="font-medium text-foreground">{latest.plan_id}</span> · {latest.solver === "cpsat" ? "CP-SAT" : latest.solver}
@@ -134,6 +162,9 @@ function TopBar() {
         <RefreshCw className={cn("size-4", createPlan.isPending && "animate-spin")} aria-hidden />
         {createPlan.isPending ? "Planning…" : latest ? "Re-plan" : "Plan now"}
       </Button>
+      <div className="md:hidden">
+        <ThemeToggle />
+      </div>
     </header>
   )
 }

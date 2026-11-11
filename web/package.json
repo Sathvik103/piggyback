@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "e2e": "playwright test --project=e2e",
+    "e2e": "playwright test --project=e2e --project=mobile",
     "screenshots": "cross-env-shell SCREENSHOTS=1 playwright test --project=screenshots",
     "demo": "cross-env-shell DEMO=1 playwright test --project=demo"
   },
