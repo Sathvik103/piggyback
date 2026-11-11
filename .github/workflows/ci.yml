@@ -63,7 +63,9 @@ jobs:
         env:
           PIGGYBACK_URL: http://localhost:8000
         run: |
-          npx playwright install --with-deps chromium
+          # --with-deps apt-installs fonts and libraries; if Ubuntu's mirrors are unreachable,
+          # fall back to the browser alone (the runner image already ships Chrome's libraries).
+          timeout 300 npx playwright install --with-deps chromium || npx playwright install chromium
           npm run e2e
       - name: Upload Playwright report
         if: failure()
