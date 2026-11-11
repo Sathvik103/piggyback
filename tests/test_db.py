@@ -147,9 +147,16 @@ def test_concurrent_accepts_cannot_overbook_a_leg(repo, world):
 def test_deleting_a_scenario_cascades(pg_url):
     r = Repo(pg_url, max_size=1)
     try:
-        r.save_scenario("t_del", generate_scenario(seed=3, n_shipments=100))
+        r.save_scenario("t_del", generate_scenario(seed=3, n_shipments=300))
+        view = r.view("t_del")
+        dets = detect(view)
+        plan = solve_greedy(generate_options(view, dets), {l.leg_id: (l.spare_kg, l.spare_m3) for l in view.legs})
+        assert plan.chosen  # a plan with choices, so the cascade has to clear plan_choices too
+        r.save_plan("t_del", plan, 2.0, len(plan.chosen))
+        r.decide("t_del", next(iter(plan.chosen)), "DISMISS")
         assert r.delete_scenario("t_del") and not r.exists("t_del")
         with psycopg.connect(pg_url) as conn:
-            assert conn.execute("SELECT count(*) FROM shipments WHERE scenario_id = 't_del'").fetchone()[0] == 0
+            for table in ("shipments", "plans", "plan_choices", "decisions"):
+                assert conn.execute(f"SELECT count(*) FROM {table} WHERE scenario_id = 't_del'").fetchone()[0] == 0
     finally:
         r.close()
