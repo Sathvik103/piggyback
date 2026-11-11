@@ -56,7 +56,7 @@ test.describe("queue", () => {
 test("network map draws layers and opens a hub", async ({ page, errors }) => {
   await page.goto("/app/#/network")
   await expect(page.locator(".maplibregl-canvas")).toBeVisible()
-  const hub = page.getByRole("button", { name: /^Mumbai \(MUM\)/ })
+  const hub = page.getByRole("button", { name: /^MUM, Mumbai/ })
   await expect(hub).toBeVisible()
   // Layers loaded and took their colours (regressions: oklch colours and the
   // bundled worker URL once silently left the map with markers but no lines).

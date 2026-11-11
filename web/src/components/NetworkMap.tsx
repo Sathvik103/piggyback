@@ -203,7 +203,7 @@ export function NetworkMap(props: NetworkMapProps) {
       el.dataset.closed = String(Boolean(closedHubs?.has(id)))
       el.dataset.onroute = String(Boolean(recovery?.route.includes(id) || booked?.includes(id)))
       el.dataset.compact = String(Boolean(compact))
-      el.setAttribute("aria-label", `${h.name} (${id})${n ? `, ${n} flagged` : ""}${closedHubs?.has(id) ? ", closed" : ""}`)
+      el.setAttribute("aria-label", `${id}, ${h.name}${n ? `, ${n} flagged` : ""}${closedHubs?.has(id) ? ", closed" : ""}`)
       el.title = el.getAttribute("aria-label")!
       el.tabIndex = onHubClick ? 0 : -1
     }

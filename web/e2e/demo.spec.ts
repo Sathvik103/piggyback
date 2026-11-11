@@ -56,7 +56,7 @@ test("demo", async ({ page, errors }) => {
   await expect(page.locator('[aria-label="Network map"][data-map-ready="true"]')).toBeVisible()
   await page.waitForTimeout(800)
   await frame(1800)
-  await page.getByRole("button", { name: /^Lucknow \(LKO\)/ }).click()
+  await page.getByRole("button", { name: /^LKO, Lucknow/ }).click()
   await expect(page.getByText("Departures in the next 24 h")).toBeVisible()
   await page.waitForTimeout(500)
   await frame(2200)

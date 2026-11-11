@@ -160,7 +160,7 @@ function PlanDetail({ planId }: { planId: string }) {
             })}
           </div>
         </div>
-        <div className="max-h-[52vh] overflow-y-auto">
+        <div className="max-h-[52vh] overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-ring/50" tabIndex={0} role="region" aria-label="Plan choices">
           <Table>
             <TableHeader>
               <TableRow>
