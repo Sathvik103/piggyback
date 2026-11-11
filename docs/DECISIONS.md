@@ -29,7 +29,7 @@ Times are stored as **hours since scenario start** (floats), not timestamps. Thi
 6. **API** (done): serve scenarios, detections and plans. Ground truth only under `/evaluation/` routes (see README).
 7. **Dashboard** (done): map of hubs and lanes, stranded shipments, the proposed plan and its KPIs. Truth-based numbers are opt-in and visually separated (see README).
 
-Out of scope: real carrier integrations, last-mile delivery, pricing, live OSRM routing (planned as a later swap for road times).
+Out of scope: real carrier integrations, last-mile delivery, pricing, live routing (road distances come from a committed OSRM matrix; see below).
 
 ## Information boundary
 
@@ -41,7 +41,7 @@ Detection and recovery code may read: `hubs`, `lanes`, `corridors`, `trips`, `tr
 
 ## Simulator model
 
-- **Network**: 25 Indian hubs. Lanes are the minimum spanning tree plus each hub's 3 nearest neighbours, in both directions, so the graph is always connected (90 directed lanes with the current hub list).
+- **Network**: 25 Indian hubs. Lanes are the minimum spanning tree plus each hub's 3 nearest neighbours, in both directions, so the graph is always connected (94 directed lanes with the current hub list and OSRM road distances).
 - **Timetable**: corridors are 1–3-lane paths. First every lane gets one, then random extras up to 80 corridors. Each runs every 12 h or 24 h from a random offset. Trips depart within `horizon_h` (144 h, so recovery at `now` = 36 h has days of departures to book onto; with 72 h, about a quarter of stranded parcels had no scheduled way home). There is 1 h of dwell at intermediate stops.
 - **Spare capacity** per leg is a Beta draw. Its mean falls linearly from ~0.58 of vehicle capacity at `capacity_tightness=0` to ~0.03 at 1. It is sampled per leg, not derived from booked loads.
 - **Shipments**: origin and destination are weighted by hub size and created uniformly in `[0, now-1)`. Each is booked on the earliest-arrival itinerary (connection scan). That itinerary has 1 h induction and 2 h minimum connection between trips; staying aboard needs none. Deadline = created + fixed + slack × planned transit: EXPRESS 2 h + 1.15×, STANDARD 4 h + 1.4×, ECONOMY 8 h + 1.8×. So every shipment can meet its deadline if nothing goes wrong.
@@ -119,7 +119,9 @@ Penalty = cost + ₹250 × priority weight (EXPRESS 3, STANDARD 2, ECONOMY 1) ×
 
 **Transfer buffer.** Most failed recoveries came from transferring off a truck whose delay nobody had observed yet; it turned out later than planned and the connection broke. The planner therefore demands extra slack (`UNOBSERVED_TRANSFER_BUFFER_H`) when a plan changes trucks after one with no scans yet. Trucks with observed delays need none, and the replay and the baselines never use it. The value, 1.5 h, was picked on validation seeds 101–110 × tightness 0.6/0.9 (penalty −5.5% vs no buffer there, failures 4.9% → 2.1%). The reported seeds 1–20 were never used for tuning.
 
-On those reported seeds the buffer more than halves failed recoveries (4.2% → 1.9%), but its penalty saving is smaller than on validation and only significant when capacity is tight. So it's described as a reliability feature, not a cost saver.
+On those reported seeds the buffer more than halves failed recoveries (4.4% → 2.0%) and saves −3.3% ± 2.1 penalty.
+
+**Re-checked after the switch to real road times** (OSRM), again only on validation seeds 101–110 × 0.6/0.9, sweeping 0–2.5 h: failed recoveries fall steadily as the buffer grows (3.5% at 0.5 h, 2.1% at 1.5 h, 0.6% at 2.5 h), but the penalty versus no buffer moves within noise (−1.4% to +3.1%, no trend). With no penalty signal to tune on, 1.5 h was kept rather than re-fitted to noise. So the buffer is described as a reliability feature, not a cost saver.
 
 **Results.** See "Benchmark design" below, `results/REPORT.md` and `results/ROBUSTNESS.md`. About 2% of Piggyback's plans still fail in replay, mostly from the occasional wrong hub from detection and from trucks whose delay grows after it was observed.
 
@@ -138,29 +140,30 @@ A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_dis
 - **Default switched after benchmarking (disclosed).** Piggyback first rebooked AT_RISK parcels proactively. The fair benchmark showed that didn't pay: it reserves capacity on a prediction that waiting confirms more cheaply. So the default became wait-then-act and the grid was re-run. Proactive rebooking is still available (`include_at_risk` / `--include-at-risk`) and is benchmarked as an ablation.
 - **Statistics.** Comparisons are paired per scenario. The report shows mean differences with 95% t-intervals, and calls a difference significant only if its interval excludes 0. A sensitivity table re-prices the same outcomes at ₹50–1000 per late hour.
 - **Findings** (full numbers in `results/REPORT.md` and the README):
-  - **vs next service FCFS:** −25.3% realized penalty, +4.0 pp on time, and failed recoveries 1.9% vs 10.7%. Better in 167/180 scenarios.
-  - **vs the truck rule:** −45.5% penalty, though 5.0 pp fewer parcels on time, because it spends about 9× less.
-  - **Delay awareness carries most of the gain** (−21.4%).
-  - **Transfer buffer:** halves failures; penalty −1.8% overall (not significant), −5.0% when capacity is tight.
-  - **CP-SAT over greedy:** −3.0% overall, −7.5% when capacity is tight.
-  - **Proactive rebooking:** costs more (−1.9% ± 1.5 in favour of waiting).
+  - **vs next service FCFS:** −26.5% realized penalty, +4.6 pp on time, and failed recoveries 2.0% vs 10.6%. Better in 167/180 scenarios.
+  - **vs the truck rule:** −45.1% penalty, though 4.4 pp fewer parcels on time, because it spends about 8× less.
+  - **Delay awareness carries most of the gain** (−20.8%).
+  - **Transfer buffer:** halves failures (4.4% → 2.0%); penalty −3.3% overall.
+  - **CP-SAT over greedy:** −3.0% overall, −8.0% when capacity is tight.
+  - **Proactive rebooking:** no better than waiting (−0.7% ± 0.7 in favour of waiting, not significant).
 - **Robustness** (`python -m benchmark.run --stress`, `results/ROBUSTNESS.md`): the same contest under conditions Piggyback wasn't designed around. Each changes one thing from the default world: delays that start mid-trip (so early scans look on time), 3% of trips silently cancelled, spare capacity scarce on busy corridors and evenings, 3× noisier scans, and twice as many late trips. 10 seeds × tightness 0.6/0.9 per condition.
-  - **Result:** Piggyback beats next service FCFS on realized penalty in every condition (−17.5% to −29.2%, all significant). Failed recoveries are 2–4× lower, and it wins 17–19 of 20 scenarios per condition. The gap is widest with twice as many late trips.
-  - **Weak spots:** delays that start mid-trip blunt delay awareness (−11.8% vs −16% in the default world), and there the transfer buffer stops helping. Silent cancellations push Piggyback's failure rate to 6.2%, still under half the baseline's 14.9%.
-  - **The optimizer's contribution** is significant in every condition (−4.7% to −8.2%), largest when capacity is scarce at peaks.
+  - **Result:** Piggyback beats next service FCFS on realized penalty in every condition (−17.0% to −37.3%, all significant). Failed recoveries are 2–5× lower, and it wins 16–20 of 20 scenarios per condition. The gap is widest with twice as many late trips.
+  - **Weak spots:** delays that start mid-trip blunt delay awareness (−11.3% vs −16.8% in the default world); there the transfer buffer and the optimizer stop making a significant difference, and the on-time gain (+1.7 pp) is not significant. Silent cancellations push Piggyback's failure rate to 7.2%, still under half the baseline's 15.5%.
+  - **The optimizer's contribution** is significant in every condition except mid-trip delays (−3.7% to −8.3%), largest when capacity is scarce at peaks.
 
 ## Scaling and the solver
 
 `python -m benchmark.scaling` grows the network from 3,000 to 40,000 shipments (3 seeds each, capacity tightness 0.9, CP-SAT limit 30 s, 8 workers, one machine) and times what an operator waits for after re-planning.
-- **Up to about 6,000 shipments** (about 300 stranded parcels), CP-SAT proves optimality in 1.3 s or less.
-- **Beyond that** it uses the full limit. Its lower bound still proves every plan is within 1.2% of the optimum, worst seed at 40,000 shipments, where greedy is 24–42% worse.
+- **At 3,000 shipments** (about 230 stranded parcels), CP-SAT proves optimality in under 3 s.
+- **From 6,000 up** it usually uses the full limit. Its lower bound still proves every plan is within 1.4% of the optimum (worst seed), while greedy is 17–53% worse.
 - **Detection and option generation** grow roughly linearly, to under 6 s at 40,000.
 
 **Warm start tried and dropped.** Hinting the greedy plan to CP-SAT seemed obvious: it guarantees the search starts from greedy's quality. Measured on the same instances, it was neutral up to 20,000 shipments and anchored the search badly at 40,000, where the plan was 11.5% worse than a cold start and the provable gap grew to 14.5%. The shipped solver starts cold and keeps a greedy safety net instead: if a time-limited run ends worse than greedy, it returns greedy's plan (status `FEASIBLE_GREEDY`). On these instances the net never triggered.
 
 ## Calibration assumptions (not real-world data)
 
-- Road distance = great-circle × 1.3; average line-haul speed 45 km/h including stops. To be replaced by an OSRM matrix.
+- Road distances and drive times between the 25 hubs are real: an OSRM table request over OpenStreetMap (car profile), committed as `simulator/data/road_matrix.json` and refreshed with `python scripts/fetch_road_matrix.py`. Real roads are 1.07–1.46× the great-circle distance (mean 1.22, against the 1.3 assumed before).
+- Truck times are OSRM's car times × 1.81, the factor that makes the network-wide average line-haul speed 45 km/h including stops. That keeps the old calibrated average but lets corridors differ: a ghat road like Kochi–Coimbatore runs at 34 km/h, the Delhi–Mumbai expressway at 49 km/h. The 45 km/h average itself is still an assumption.
 - Vehicles: 14 ft (2.5 t, 18 m³, ₹22/km), 20 ft (5 t, 32 m³, ₹32/km), 32 ft MXL (9 t, 60 m³, ₹48/km). These are assumed figures, not carrier quotes.
 - Parcel weight is log-normal (median 8 kg, clipped to 0.2–400 kg); density is 120–300 kg/m³.
 - Hub sort capacities are illustrative; nothing uses them yet.

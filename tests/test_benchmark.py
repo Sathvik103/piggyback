@@ -15,7 +15,7 @@ from simulator import generate_scenario
 
 @pytest.fixture(scope="module")
 def world():
-    sc = generate_scenario(seed=5, n_shipments=1500, capacity_tightness=0.8)
+    sc = generate_scenario(seed=7, n_shipments=1500, capacity_tightness=0.8)
     view = OperatorView.from_scenario(sc)
     return sc, view, detect(view)
 

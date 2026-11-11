@@ -150,7 +150,7 @@ def generate_options(view: OperatorView, detections: list[Detection],
             if vehicle is not None:
                 km = road_km(hubs[origin], hubs[s.dest_hub])
                 depart = ready + cfg.dedicated_dispatch_h
-                add(MODE_DEDICATED, (), (), depart, depart + road_hours(km) + DELIVERY_H,
+                add(MODE_DEDICATED, (), (), depart, depart + road_hours(hubs[origin], hubs[s.dest_hub]) + DELIVERY_H,
                     km * vehicle.cost_per_km_inr, f"{vehicle.code}, {km:.0f} km")
 
         add(MODE_NONE, (), (), None, None, 0.0, "leave it")

@@ -31,7 +31,7 @@ test("queue", async ({ page, errors }) => {
 
 test("network", async ({ page, errors }) => {
   await page.goto("/app/#/network")
-  await page.getByRole("button", { name: /^Mumbai \(MUM\)/ }).click()
+  await page.getByRole("button", { name: /^MUM, Mumbai/ }).click()
   await expect(page.getByText("Departures in the next 24 h")).toBeVisible()
   await page.waitForTimeout(800)
   await page.screenshot({ path: `${OUT}/network.png` })

@@ -103,7 +103,7 @@ def build_lanes(hubs: list[Hub]) -> list[Lane]:
         for a, b in ((i, j), (j, i)):
             km = dist[a][b]
             lanes.append(Lane(f"{hubs[a].hub_id}-{hubs[b].hub_id}", hubs[a].hub_id, hubs[b].hub_id,
-                              _r(km, 1), _r(road_hours(km))))
+                              _r(km, 1), _r(road_hours(hubs[a], hubs[b]))))
     return lanes
 
 

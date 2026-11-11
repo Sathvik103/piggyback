@@ -6,11 +6,11 @@ Plan time is what an operator waits for after pressing re-plan: detection, optio
 
 | Shipments | Stranded parcels | Options | Contested legs | Detect (s) | Options (s) | CP-SAT (s) | Plan time (s) | Proven optimal | Max gap to optimum | Greedy's extra cost |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 3,000 | 176 | 834 | 224 | 0.03 | 0.14 | 0.06 | 0.23 | 3/3 | 0.00% | +6.8% |
-| 6,000 | 304 | 1,458 | 298 | 0.16 | 0.63 | 0.52 | 1.31 | 3/3 | 0.00% | +10.0% |
-| 10,000 | 570 | 2,720 | 354 | 0.23 | 0.91 | 20.74 | 21.88 | 1/3 | 0.62% | +23.6% |
-| 20,000 | 1165 | 5,553 | 418 | 0.43 | 1.93 | 30.50 | 32.87 | 0/3 | 1.23% | +39.9% |
-| 40,000 | 2832 | 13,599 | 463 | 1.06 | 4.86 | 31.56 | 37.49 | 0/3 | 1.19% | +41.5% |
+| 3,000 | 230 | 1,121 | 258 | 0.05 | 0.26 | 2.59 | 2.90 | 3/3 | 0.00% | +17.0% |
+| 6,000 | 580 | 2,819 | 333 | 0.18 | 1.22 | 30.32 | 31.72 | 0/3 | 0.78% | +47.3% |
+| 10,000 | 849 | 4,153 | 378 | 0.29 | 1.64 | 22.30 | 24.22 | 1/3 | 1.32% | +49.2% |
+| 20,000 | 1678 | 8,205 | 442 | 0.58 | 3.08 | 30.95 | 34.61 | 0/3 | 1.10% | +53.0% |
+| 40,000 | 3388 | 16,685 | 473 | 1.14 | 5.27 | 31.86 | 38.27 | 0/3 | 1.22% | +45.1% |
 
 Greedy's extra cost is how much higher greedy's objective (money + priority-weighted lateness) is than CP-SAT's on the same options, so it shows what the optimizer is worth as contention grows.
 

@@ -1,8 +1,11 @@
-"""Static network inputs: hub cities, vehicle types and road-time assumptions."""
+"""Static network inputs: hub cities, vehicle types and road distances and times."""
 
 from __future__ import annotations
 
+import json
 import math
+from functools import cache
+from pathlib import Path
 
 from .models import Hub, VehicleType
 
@@ -44,8 +47,13 @@ VEHICLE_TYPES: list[VehicleType] = [
     VehicleType("MXL_32FT", 9000.0, 60.0, 48.0),
 ]
 
-ROAD_CIRCUITY = 1.3          # road km per great-circle km
-AVG_SPEED_KMH = 45.0         # line-haul average incl. stops
+# Road distances and drive times between hubs come from OpenStreetMap via OSRM
+# (simulator/data/road_matrix.json, fetched by scripts/fetch_road_matrix.py). OSRM's car
+# times are scaled up for loaded trucks so that the network-wide average line-haul speed,
+# stops included, is 45 km/h; hill and congested corridors stay slower than flat highways.
+ROAD_MATRIX = Path(__file__).with_name("data") / "road_matrix.json"
+TRUCK_AVG_SPEED_KMH = 45.0   # network-wide line-haul average incl. stops
+FALLBACK_CIRCUITY = 1.22     # road km per great-circle km (OSRM mean over hub pairs)
 HUB_DWELL_H = 1.0            # stop time at an intermediate corridor hub
 MIN_CONNECTION_H = 2.0       # unload + sort + reload at a transfer hub
 
@@ -58,9 +66,27 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+@cache
+def _matrix() -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]], float]:
+    """(road km, car hours, truck/car time factor). The factor makes total truck time over
+    all pairs equal to total distance at TRUCK_AVG_SPEED_KMH."""
+    d = json.loads(ROAD_MATRIX.read_text(encoding="utf-8"))
+    km, car = d["road_km"], d["car_hours"]
+    pairs = [(a, b) for a in km for b in km[a] if a != b]
+    factor = sum(km[a][b] for a, b in pairs) / TRUCK_AVG_SPEED_KMH / sum(car[a][b] for a, b in pairs)
+    return km, car, factor
+
+
 def road_km(a: Hub, b: Hub) -> float:
-    return haversine_km(a.lat, a.lon, b.lat, b.lon) * ROAD_CIRCUITY
+    km, _, _ = _matrix()
+    if a.hub_id in km and b.hub_id in km[a.hub_id]:
+        return km[a.hub_id][b.hub_id]
+    return haversine_km(a.lat, a.lon, b.lat, b.lon) * FALLBACK_CIRCUITY
 
 
-def road_hours(km: float) -> float:
-    return km / AVG_SPEED_KMH
+def road_hours(a: Hub, b: Hub) -> float:
+    """Truck driving time from a to b, excluding hub dwell."""
+    _, car, factor = _matrix()
+    if a.hub_id in car and b.hub_id in car[a.hub_id]:
+        return car[a.hub_id][b.hub_id] * factor
+    return road_km(a, b) / TRUCK_AVG_SPEED_KMH

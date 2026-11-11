@@ -1,6 +1,6 @@
 __pycache__/
 .pytest_cache/
-data/
+/data/
 
 # Built web app (web/ -> npm run build)
 api/static/

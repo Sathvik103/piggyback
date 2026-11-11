@@ -229,7 +229,7 @@ def test_benchmark_knobs():
     clean = generate_scenario(seed=3, n_shipments=200, anomaly_rate=0.0, n_incidents=0, n_disruptions=0,
                               trip_delay_rate=0.0, scan_lag_rate=0.0)
     assert len(clean.shipments) == 200 and clean.truth == [] and clean.disruptions == []
-    assert clean.trip_delays == [] and all(e.recorded_h - e.ts_h <= 0.25 for e in clean.scans)
+    assert clean.trip_delays == [] and all(e.recorded_h - e.ts_h <= 0.25 + 1e-9 for e in clean.scans)
 
 
 @pytest.mark.parametrize("bad", [{"capacity_tightness": 1.5}, {"anomaly_rate": -0.1}, {"now_h": 200.0},
