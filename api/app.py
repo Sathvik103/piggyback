@@ -11,6 +11,8 @@ leak it by accident.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -19,7 +21,7 @@ from typing import Literal
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,11 +33,13 @@ from detection.view import scans_by_shipment
 from recovery import OptionsConfig, RecoveryOption, replay
 from simulator.models import ScenarioConfig
 
+from .events import EventHub
 from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, RouteContext, ScenarioStore
 
 DEFAULT_GRACE_H = DetectorConfig().grace_h
 _defaults = ScenarioConfig()
 STATIC_DIR = Path(__file__).parent / "static"  # web/ builds here (npm run build)
+HEARTBEAT_S = 15.0  # keeps proxies from closing an idle event stream
 Grace = Query(DEFAULT_GRACE_H, ge=0.0, le=24.0)
 
 
@@ -97,9 +101,12 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
             migrate(database_url)
         repo = Repo(database_url)
         app.state.store = ScenarioStore(repo)
+        app.state.events = EventHub(database_url)
+        app.state.events.start(asyncio.get_running_loop())
         try:
             yield
         finally:
+            app.state.events.stop()
             repo.close()
 
     app = FastAPI(title="Piggyback", version="0.7.0", lifespan=lifespan,
@@ -268,6 +275,32 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         another accepted recovery got there first."""
         return store().decide(sid, body.shipment_id, body.action, body.plan_id, body.option_id,
                               body.note, body.decided_by, body.grace_h)
+
+    @app.get("/scenarios/{sid}/events", response_class=StreamingResponse,
+             responses={200: {"content": {"text/event-stream": {}}}})
+    async def events(sid: str, request: Request):
+        """Server-sent events for this scenario: `decision` and `plan` whenever one is
+        committed (by anyone, via any API process), and `resync` if updates may have
+        been missed. Payloads carry ids only; clients re-fetch what changed."""
+        store().check(sid)
+        hub: EventHub = app.state.events
+        q = hub.subscribe(sid)
+
+        async def stream():
+            try:
+                yield f"retry: 3000\nevent: ready\ndata: {json.dumps({'scenario_id': sid})}\n\n"
+                while not await request.is_disconnected():
+                    try:
+                        ev = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_S)
+                    except TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield f"event: {ev['type']}\ndata: {json.dumps(ev)}\n\n"
+            finally:
+                hub.unsubscribe(sid, q)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/scenarios/{sid}/decisions")
     def list_decisions(sid: str, history: bool = False):

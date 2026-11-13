@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { dayTime } from "@/lib/format"
+import { type LiveStatus, useLiveUpdates } from "@/lib/live"
 import { useCreatePlan, useLatestPlan, useScenarioSummary, useScenarios } from "@/lib/queries"
 import { useScenario } from "@/lib/scenario"
 import { cn } from "@/lib/utils"
@@ -96,6 +97,7 @@ function TopBar() {
   const { plans } = useLatestPlan(sid)
   const createPlan = useCreatePlan(sid)
   const latest = plans.data?.at(-1)
+  const live = useLiveUpdates(sid)
 
   const replan = () =>
     createPlan.mutate(
@@ -132,6 +134,7 @@ function TopBar() {
           <TooltipContent>Simulated "now". Every time in the app is relative to it.</TooltipContent>
         </Tooltip>
       )}
+      <LiveBadge status={live} />
       <div className="hidden flex-1 md:block" />
       <label className="flex items-center gap-2 text-sm text-muted-foreground">
         <span className="hidden sm:inline">Grace</span>
@@ -166,6 +169,27 @@ function TopBar() {
         <ThemeToggle />
       </div>
     </header>
+  )
+}
+
+const LIVE_TEXT: Record<LiveStatus, { label: string; hint: string; dot: string }> = {
+  live: { label: "Live", hint: "Decisions and plans from other sessions appear as they happen.", dot: "bg-good" },
+  connecting: { label: "Connecting", hint: "Reconnecting to live updates. The view refreshes once connected.", dot: "bg-warn animate-pulse" },
+  offline: { label: "Offline", hint: "Live updates are off. Other sessions' decisions show after a refresh.", dot: "bg-muted-foreground" },
+}
+
+function LiveBadge({ status }: { status: LiveStatus }) {
+  const t = LIVE_TEXT[status]
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span role="status" aria-label={`Live updates: ${t.label}`} className="flex items-center gap-1.5 text-xs text-muted-foreground" data-live={status}>
+          <span className={cn("size-1.5 rounded-full", t.dot)} aria-hidden />
+          <span className="hidden sm:inline">{t.label}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t.hint}</TooltipContent>
+    </Tooltip>
   )
 }
 

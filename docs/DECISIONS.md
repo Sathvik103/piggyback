@@ -125,6 +125,16 @@ On those reported seeds the buffer more than halves failed recoveries (4.4% → 
 
 **Results.** See "Benchmark design" below, `results/REPORT.md` and `results/ROBUSTNESS.md`. About 2% of Piggyback's plans still fail in replay, mostly from the occasional wrong hub from detection and from trucks whose delay grows after it was observed.
 
+## Live updates between operators
+
+Several operators can work one scenario. Accepting already locks capacity, so their decisions can't overbook a truck, but without live updates each of them would only see the others' work after a refresh, and would keep opening parcels someone had already handled.
+
+- **Source of the events.** Triggers on `decisions` and `plans` call `pg_notify` (migration 004). Postgres delivers a notification only when its transaction commits, in commit order, so nothing is announced that could still roll back. Triggers rather than application code mean every writer is covered: any API process, the CLI or a script.
+- **Relay.** Each API process holds one extra connection that `LISTEN`s, and fans events out to the browsers watching that scenario over server-sent events. SSE was preferred to WebSockets because traffic is one-way, it works through plain HTTP proxies, and `EventSource` reconnects by itself.
+- **Small payloads.** Events carry ids (shipment, decision, plan), not data. Clients re-fetch through the normal routes, so the information boundary and the caching rules stay in one place, and the 8000-byte `NOTIFY` limit never matters.
+- **Gaps.** `NOTIFY` is fire-and-forget. If the listener reconnects, or a client is too slow and its queue fills, the client is told to `resync` and re-fetches everything for the scenario, rather than silently missing changes.
+- **Own changes.** A tab remembers the ids of decisions and plans it made, so their echo refreshes data without telling the operator about their own work.
+
 ## Benchmark design
 
 A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_disruptions, n_shipments)`. The same tuple always reproduces the same scenario (tested).

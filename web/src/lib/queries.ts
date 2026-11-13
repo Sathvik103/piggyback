@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { api, type Action } from "@/lib/api"
+import { mine } from "@/lib/mine"
 
 export const keys = {
   scenarios: ["scenarios"] as const,
@@ -78,7 +79,7 @@ export const useDecisions = (sid: string | null, history = false) =>
 export const useBenchmark = () => useQuery({ queryKey: keys.benchmark, queryFn: api.benchmark, staleTime: Infinity })
 
 /** Anything that depends on decisions in force or on free capacity. */
-function invalidateOperational(qc: ReturnType<typeof useQueryClient>, sid: string) {
+export function invalidateOperational(qc: ReturnType<typeof useQueryClient>, sid: string) {
   for (const k of ["detections", "shipment", "options", "hub", "decisions"]) {
     qc.invalidateQueries({ queryKey: [k, sid] })
   }
@@ -89,6 +90,7 @@ export function useDecide(sid: string | null, grace: number) {
   return useMutation({
     mutationFn: (v: { shipment_id: string; action: Action; plan_id?: string; option_id?: string; note?: string }) =>
       api.decide(sid!, { ...v, grace_h: grace }),
+    onSuccess: (d) => mine.addDecision(d.decision_id),
     onSettled: () => sid && invalidateOperational(qc, sid),
   })
 }
@@ -97,7 +99,10 @@ export function useCreatePlan(sid: string | null) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { solver: string; grace_h: number; include_at_risk?: boolean }) => api.createPlan(sid!, v),
-    onSuccess: () => sid && qc.invalidateQueries({ queryKey: keys.plans(sid) }),
+    onSuccess: (p) => {
+      mine.addPlan(p.plan_id)
+      if (sid) qc.invalidateQueries({ queryKey: keys.plans(sid) })
+    },
   })
 }
 
