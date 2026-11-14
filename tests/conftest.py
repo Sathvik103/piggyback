@@ -34,3 +34,23 @@ def pg_url():
     from db import migrate
     migrate(TEST_DB_URL)
     return TEST_DB_URL
+
+
+@pytest.fixture(scope="session")
+def make_user(pg_url):
+    """make_user(name, role="operator") creates (or resets) a test user with a fresh
+    random password and returns the password."""
+    import secrets
+
+    from db import Repo
+
+    def make(username: str, role: str = "operator") -> str:
+        password = secrets.token_urlsafe(16)
+        r = Repo(pg_url, max_size=1)
+        try:
+            r.remove_user(username)
+            r.add_user(username, username.title(), role, password)
+        finally:
+            r.close()
+        return password
+    return make

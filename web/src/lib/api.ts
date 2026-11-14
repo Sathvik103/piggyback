@@ -243,6 +243,11 @@ export class ApiError extends Error {
   }
 }
 
+export type User = { username: string; display_name: string; role: "operator" | "viewer" }
+
+/** Fired when the API says the session is gone (expired, revoked, signed out elsewhere). */
+export const SIGNED_OUT_EVENT = "piggyback:signed-out"
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -250,6 +255,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const text = await res.text()
   const body = text ? JSON.parse(text) : null
+  if (res.status === 401 && !path.startsWith("/auth/")) window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
   if (!res.ok) {
     const detail = body && typeof body === "object" && "detail" in body ? String(body.detail) : res.statusText
     throw new ApiError(res.status, detail, body)
@@ -267,6 +273,10 @@ const q = (params: Record<string, string | number | boolean | undefined>) => {
 const sc = (sid: string) => `/scenarios/${encodeURIComponent(sid)}`
 
 export const api = {
+  meOrNull: () => request<User>("/auth/me").catch((e) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
+  login: (username: string, password: string) =>
+    request<User>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => request<null>("/auth/logout", { method: "POST" }),
   scenarios: () => request<ScenarioSummary[]>("/scenarios"),
   scenario: (sid: string) => request<ScenarioSummary>(sc(sid)),
   createScenario: (body: Record<string, unknown>) =>

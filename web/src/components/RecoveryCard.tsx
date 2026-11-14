@@ -8,6 +8,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, type Detection, type RecoveryOption } from "@/lib/api"
 import { dayTime, hoursText, inr, KIND_INFO, MODE_LABEL, relative, shortTime, words } from "@/lib/format"
+import { READ_ONLY_HINT, useAuth } from "@/lib/auth"
 import { useDecide, useOptions, useShipment } from "@/lib/queries"
 import { useScenario } from "@/lib/scenario"
 import { cn } from "@/lib/utils"
@@ -32,6 +33,7 @@ export function RecoveryCard({ detection, startAt, nowH, planId, planChoice, sel
   const decided = detail.data?.decision ?? null
   const options = useOptions(sid, id, grace, !decided)
   const decide = useDecide(sid, grace)
+  const { canEdit } = useAuth()
 
   // The plan's pick first, then the live alternatives it didn't pick.
   const choices = useMemo(() => {
@@ -79,7 +81,7 @@ export function RecoveryCard({ detection, startAt, nowH, planId, planChoice, sel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return
-      if (e.metaKey || e.ctrlKey || e.altKey || decide.isPending) return
+      if (e.metaKey || e.ctrlKey || e.altKey || decide.isPending || !canEdit) return
       if (e.key === "a" && !decided) act("ACCEPT")
       else if (e.key === "d" && !decided) act("DISMISS")
       else if (/^[1-9]$/.test(e.key) && choices[Number(e.key) - 1]) onSelect(choices[Number(e.key) - 1].option)
@@ -131,7 +133,7 @@ export function RecoveryCard({ detection, startAt, nowH, planId, planChoice, sel
       </div>
 
       {decided ? (
-        <DecidedBanner decision={decided} startAt={startAt} nowH={nowH} onRevoke={() => act("REVOKE")} busy={decide.isPending} />
+        <DecidedBanner decision={decided} startAt={startAt} nowH={nowH} onRevoke={() => act("REVOKE")} busy={decide.isPending || !canEdit} />
       ) : (
         <>
           <div className="space-y-2">
@@ -163,16 +165,17 @@ export function RecoveryCard({ detection, startAt, nowH, planId, planChoice, sel
           {choices.length > 1 && <Why choices={choices.map((c) => c.option)} />}
 
           <div className="mt-auto flex flex-wrap items-center gap-2 border-t pt-4">
-            <Button onClick={() => act("ACCEPT")} disabled={decide.isPending || !current}>
+            <Button onClick={() => act("ACCEPT")} disabled={decide.isPending || !current || !canEdit}>
               <Check className="size-4" aria-hidden />
               {current && current !== choices[0] ? "Accept this option" : "Accept recommendation"}
               <Kbd className="ml-1">A</Kbd>
             </Button>
-            <Button variant="outline" onClick={() => act("DISMISS")} disabled={decide.isPending}>
+            <Button variant="outline" onClick={() => act("DISMISS")} disabled={decide.isPending || !canEdit}>
               <X className="size-4" aria-hidden />
               Dismiss flag
               <Kbd className="ml-1">D</Kbd>
             </Button>
+            {!canEdit && <span className="text-xs text-muted-foreground">{READ_ONLY_HINT}</span>}
             <span className="ml-auto text-xs text-muted-foreground">
               <Kbd>1</Kbd>–<Kbd>{Math.min(9, choices.length)}</Kbd> pick an option
             </span>

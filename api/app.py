@@ -3,6 +3,9 @@
     python -m uvicorn api.app:create_app --factory --port 8000
     # uses $DATABASE_URL (default: the docker compose database on port 5433)
 
+Every route except health, the published benchmark, the web app and /auth needs a
+signed-in user (api/auth.py); changes need the operator role.
+
 Operator routes only ever see what an operator could: the timetable, shipments,
 visible scans, disruptions, detections, plans and decisions. Everything that
 reads ground truth lives under /scenarios/{id}/evaluation/ so a dashboard can't
@@ -19,7 +22,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +36,7 @@ from detection.view import scans_by_shipment
 from recovery import OptionsConfig, RecoveryOption, replay
 from simulator.models import ScenarioConfig
 
+from . import auth
 from .events import EventHub
 from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, RouteContext, ScenarioStore
 
@@ -72,7 +76,6 @@ class DecisionCreate(BaseModel):
     plan_id: str | None = Field(None, description="ACCEPT this plan's choice for the shipment")
     option_id: str | None = Field(None, description="ACCEPT one of the shipment's live options")
     note: str = Field("", max_length=500)
-    decided_by: str = Field("operator", max_length=64)
     grace_h: float = Field(DEFAULT_GRACE_H, ge=0.0, le=24.0)
 
 
@@ -109,8 +112,12 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
             app.state.events.stop()
             repo.close()
 
-    app = FastAPI(title="Piggyback", version="0.7.0", lifespan=lifespan,
+    def _guard(request: Request) -> None:
+        auth.guard(lambda: app.state.store.repo, request)
+
+    app = FastAPI(title="Piggyback", version="0.8.0", lifespan=lifespan, dependencies=[Depends(_guard)],
                   description="Delay-aware shipment recovery on scheduled trips with spare capacity.")
+    app.include_router(auth.router(lambda: app.state.store.repo))
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
                        allow_methods=["GET", "POST"], allow_headers=["*"])
 
@@ -269,12 +276,12 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     # ------------------------------------------------------------------ decisions
 
     @app.post("/scenarios/{sid}/decisions", status_code=201)
-    def create_decision(sid: str, body: DecisionCreate):
+    def create_decision(sid: str, body: DecisionCreate, request: Request):
         """ACCEPT a recovery (from a plan or the live options), DISMISS a false flag, or
         REVOKE the decision in force. ACCEPT holds the spare capacity it uses; 409 if
         another accepted recovery got there first."""
         return store().decide(sid, body.shipment_id, body.action, body.plan_id, body.option_id,
-                              body.note, body.decided_by, body.grace_h)
+                              body.note, auth.current_user(request)["username"], body.grace_h)
 
     @app.get("/scenarios/{sid}/events", response_class=StreamingResponse,
              responses={200: {"content": {"text/event-stream": {}}}})

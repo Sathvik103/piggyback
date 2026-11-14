@@ -1,8 +1,8 @@
-import { currentShipment, expect, SCENARIO, test } from "./fixtures"
+import { currentShipment, expect, SCENARIO, storageFor, test } from "./fixtures"
 
 // Two operators on the same scenario: one decides, the other's console updates live.
 test("a decision in one session shows up in another without a refresh", async ({ page, browser, errors }) => {
-  const other = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const other = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: storageFor("operator") })
   await other.addInitScript((sid) => localStorage.setItem("piggyback.sid", sid), SCENARIO)
   const b = await other.newPage()
   try {

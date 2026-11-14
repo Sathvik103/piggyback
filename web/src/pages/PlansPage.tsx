@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api } from "@/lib/api"
 import { hoursText, inr, lakh, MODE_LABEL, shortTime, words } from "@/lib/format"
 import { useCreatePlan, useDecisions, usePlan, usePlans, useScenarioSummary } from "@/lib/queries"
+import { READ_ONLY_HINT, useAuth } from "@/lib/auth"
 import { useScenario } from "@/lib/scenario"
 import { cn } from "@/lib/utils"
 
@@ -28,6 +29,7 @@ export function PlansPage() {
   const [solver, setSolver] = useState("cpsat")
   const [atRisk, setAtRisk] = useState(false)
   const create = useCreatePlan(sid)
+  const { canEdit } = useAuth()
 
   // Default to the newest plan.
   const list = plans.data ?? []
@@ -63,7 +65,7 @@ export function PlansPage() {
               <span className="block text-xs text-muted-foreground">Off by default: in the benchmark, acting early did no better than waiting.</span>
             </span>
           </label>
-          <Button className="w-full" onClick={run} disabled={!sid || create.isPending}>
+          <Button className="w-full" onClick={run} disabled={!sid || create.isPending || !canEdit} title={canEdit ? undefined : READ_ONLY_HINT}>
             <Play className="size-4" aria-hidden /> {create.isPending ? "Planning…" : "Run plan"}
           </Button>
           <p className="text-xs text-muted-foreground">Covers every flagged parcel without a decision, against truck space accepted recoveries haven't taken.</p>

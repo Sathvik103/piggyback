@@ -1,11 +1,13 @@
-import { ChartColumn, FlaskConical, Inbox, ListChecks, Map as MapIcon, Moon, RefreshCw, Sun } from "lucide-react"
+import { ChartColumn, FlaskConical, Inbox, ListChecks, LogOut, Map as MapIcon, Moon, RefreshCw, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { NavLink, Outlet } from "react-router"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { READ_ONLY_HINT, useAuth } from "@/lib/auth"
 import { dayTime } from "@/lib/format"
 import { type LiveStatus, useLiveUpdates } from "@/lib/live"
 import { useCreatePlan, useLatestPlan, useScenarioSummary, useScenarios } from "@/lib/queries"
@@ -98,6 +100,7 @@ function TopBar() {
   const createPlan = useCreatePlan(sid)
   const latest = plans.data?.at(-1)
   const live = useLiveUpdates(sid)
+  const { canEdit } = useAuth()
 
   const replan = () =>
     createPlan.mutate(
@@ -161,14 +164,41 @@ function TopBar() {
           "No plan yet"
         )}
       </span>
-      <Button size="sm" onClick={replan} disabled={!sid || createPlan.isPending}>
+      <Button size="sm" onClick={replan} disabled={!sid || createPlan.isPending || !canEdit} title={canEdit ? undefined : READ_ONLY_HINT}>
         <RefreshCw className={cn("size-4", createPlan.isPending && "animate-spin")} aria-hidden />
         {createPlan.isPending ? "Planning…" : latest ? "Re-plan" : "Plan now"}
       </Button>
       <div className="md:hidden">
         <ThemeToggle />
       </div>
+      <UserMenu />
     </header>
+  )
+}
+
+function UserMenu() {
+  const { user, signOut } = useAuth()
+  const initials = user.display_name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="rounded-full" aria-label={`${initials}, account: ${user.display_name}`}>
+          <span className="flex size-7 items-center justify-center rounded-full bg-foreground/[0.07] text-[11px] font-semibold">{initials}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="font-normal">
+          <div className="text-sm font-medium">{user.display_name}</div>
+          <div className="text-xs text-muted-foreground">
+            {user.username} · {user.role === "operator" ? "Operator" : "Viewer (read-only)"}
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void signOut()}>
+          <LogOut className="size-4" aria-hidden /> Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

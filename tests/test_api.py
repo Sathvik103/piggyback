@@ -20,11 +20,13 @@ def _keys(obj) -> set[str]:
 
 
 @pytest.fixture(scope="module")
-def client(pg_url):
+def client(pg_url, make_user):
     r = Repo(pg_url, max_size=1)
     r.delete_scenario("s7")
     r.close()
+    password = make_user("api-op")
     with TestClient(create_app(pg_url)) as c:
+        assert c.post("/auth/login", json={"username": "api-op", "password": password}).status_code == 200
         r = c.post("/scenarios", json={"scenario_id": "s7", "seed": 7, "n_shipments": 1200})
         assert r.status_code == 201, r.text
         yield c

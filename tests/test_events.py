@@ -115,9 +115,12 @@ def _events(lines):
             yield name, json.loads(line[6:])
 
 
-def test_events_endpoint_streams_plans_and_decisions(server, repo):
+def test_events_endpoint_streams_plans_and_decisions(make_user, server, repo):
     sid = _shipment(repo, "ev1")
+    password = make_user("ev-op")
     with httpx.Client(base_url=server, timeout=15) as http:
+        assert http.get("/scenarios/ev1/events").status_code == 401  # signed-in users only
+        assert http.post("/auth/login", json={"username": "ev-op", "password": password}).status_code == 200
         assert http.get("/scenarios/nope/events").status_code == 404
         with http.stream("GET", "/scenarios/ev1/events") as r:
             assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")

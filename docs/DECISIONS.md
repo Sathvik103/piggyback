@@ -135,6 +135,17 @@ Several operators can work one scenario. Accepting already locks capacity, so th
 - **Gaps.** `NOTIFY` is fire-and-forget. If the listener reconnects, or a client is too slow and its queue fills, the client is told to `resync` and re-fetches everything for the scenario, rather than silently missing changes.
 - **Own changes.** A tab remembers the ids of decisions and plans it made, so their echo refreshes data without telling the operator about their own work.
 
+## Accounts and sign-in
+
+Decisions move real freight, so the log has to say who made each one, and not everyone who can look should be able to act.
+
+- **Sessions in Postgres, not JWTs.** A random token in an HttpOnly cookie, with its SHA-256 in a `sessions` table. Signing out, changing a password or disabling a user takes effect on the next request, which a stateless token can't do without a revocation list anyway. One indexed lookup per request is cheap at this scale.
+- **scrypt from the standard library.** A memory-hard, salted hash with its parameters stored next to it, so they can be raised later without breaking old hashes. It needs no extra dependency.
+- **Two roles.** Operators act; viewers (a manager, an auditor, a carrier partner) see the same console read-only. The API enforces the role, and the console only mirrors it by disabling the controls.
+- **One guard for every route.** A single FastAPI dependency decides access for every route, with a short allow-list of public paths, so a new route is protected by default.
+- **CSRF.** SameSite=Lax cookies plus refusing state changes that carry a foreign `Origin`. JSON-only endpoints mean a plain HTML form can't post to them either.
+- **No credentials in the repo.** The end-to-end setup creates its users through the CLI with fresh random passwords on every run and signs them in; the API tests do the same through a fixture.
+
 ## Benchmark design
 
 A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_disruptions, n_shipments)`. The same tuple always reproduces the same scenario (tested).

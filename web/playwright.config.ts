@@ -18,6 +18,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
+    storageState: "e2e/.auth/operator.json", // written by global-setup; specs can switch user
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
   },

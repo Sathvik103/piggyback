@@ -7,7 +7,9 @@ leg_id order, so concurrent approvals serialise instead of overbooking a truck.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import secrets
 from collections import defaultdict
 from dataclasses import asdict, fields
 
@@ -21,9 +23,13 @@ from recovery.options import RecoveryOption
 from simulator.export import TABLES, TRUTH_TABLES, summary
 from simulator.models import Scenario, TripDelay, TruthRecord, column_names
 
+from .passwords import hash_password, verify_dummy, verify_password
+
 DEFAULT_URL = os.environ.get("DATABASE_URL", "postgresql://piggyback:piggyback@localhost:5433/piggyback")
 
 ACCEPT, DISMISS, REVOKE = "ACCEPT", "DISMISS", "REVOKE"
+ROLES = ("operator", "viewer")
+SESSION_HOURS = 12
 _OPTION_COLS = [f.name for f in fields(RecoveryOption)]
 
 
@@ -183,6 +189,78 @@ class Repo:
             rows = conn.execute(q + " ORDER BY shipment_id", args).fetchall()
         return [_option(r) for r in rows]
 
+    # ------------------------------------------------------------------ users and sessions
+
+    def add_user(self, username: str, display_name: str, role: str, password: str) -> None:
+        if role not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        with self.pool.connection() as conn:
+            conn.execute("INSERT INTO users (username, display_name, role, password_hash) VALUES (%s, %s, %s, %s)",
+                         (username, display_name, role, hash_password(password)))
+
+    def set_password(self, username: str, password: str) -> bool:
+        """Also signs the user out everywhere."""
+        with self.pool.connection() as conn, conn.transaction():
+            n = conn.execute("UPDATE users SET password_hash = %s WHERE username = %s",
+                             (hash_password(password), username)).rowcount
+            conn.execute("DELETE FROM sessions WHERE username = %s", (username,))
+        return n > 0
+
+    def set_user(self, username: str, *, role: str | None = None, disabled: bool | None = None,
+                 display_name: str | None = None) -> bool:
+        if role is not None and role not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        with self.pool.connection() as conn, conn.transaction():
+            n = conn.execute(
+                "UPDATE users SET role = coalesce(%s, role), disabled = coalesce(%s, disabled), "
+                "display_name = coalesce(%s, display_name) WHERE username = %s",
+                (role, disabled, display_name, username)).rowcount
+            if disabled:
+                conn.execute("DELETE FROM sessions WHERE username = %s", (username,))
+        return n > 0
+
+    def remove_user(self, username: str) -> bool:
+        with self.pool.connection() as conn:
+            return conn.execute("DELETE FROM users WHERE username = %s", (username,)).rowcount > 0
+
+    def users(self) -> list[dict]:
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute("SELECT username, display_name, role, disabled, created_at FROM users "
+                               "ORDER BY username").fetchall()
+
+    def authenticate(self, username: str, password: str) -> dict | None:
+        """The user if the password is right and the account is enabled. Takes about as
+        long for an unknown username as for a wrong password."""
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            row = cur.execute("SELECT username, display_name, role, password_hash, disabled FROM users "
+                              "WHERE username = %s", (username,)).fetchone()
+        if row is None:
+            return verify_dummy(password) or None
+        if not verify_password(password, row["password_hash"]) or row["disabled"]:
+            return None
+        return {k: row[k] for k in ("username", "display_name", "role")}
+
+    def create_session(self, username: str, hours: float = SESSION_HOURS) -> str:
+        """A new random token; only its hash is stored."""
+        token = secrets.token_urlsafe(32)
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE expires_at < now()")
+            conn.execute("INSERT INTO sessions (token_sha256, username, expires_at) "
+                         "VALUES (%s, %s, now() + make_interval(secs => %s))",
+                         (_token_hash(token), username, hours * 3600))
+        return token
+
+    def session_user(self, token: str) -> dict | None:
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute(
+                "SELECT u.username, u.display_name, u.role FROM sessions s JOIN users u USING (username) "
+                "WHERE s.token_sha256 = %s AND s.expires_at > now() AND NOT u.disabled",
+                (_token_hash(token),)).fetchone()
+
+    def end_session(self, token: str) -> None:
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE token_sha256 = %s", (_token_hash(token),))
+
     # ------------------------------------------------------------------ decisions
 
     def decide(self, sid: str, shipment_id: str, action: str, option: RecoveryOption | None = None,
@@ -231,6 +309,10 @@ class Repo:
         for r in rows:
             r["decided_at"] = r["decided_at"].isoformat()
         return rows
+
+
+def _token_hash(token: str) -> bytes:
+    return hashlib.sha256(token.encode()).digest()
 
 
 def _option(row) -> RecoveryOption:

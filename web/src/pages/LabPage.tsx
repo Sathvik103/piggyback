@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api } from "@/lib/api"
 import { dayTime } from "@/lib/format"
 import { useCreateScenario, useScenarios } from "@/lib/queries"
+import { READ_ONLY_HINT, useAuth } from "@/lib/auth"
 import { useScenario } from "@/lib/scenario"
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -91,6 +92,7 @@ function DetectionQuality() {
 
 function CreateScenario({ onCreated }: { onCreated: (sid: string) => void }) {
   const create = useCreateScenario()
+  const { canEdit } = useAuth()
   const [f, setF] = useState({
     scenario_id: "", seed: "7", n_shipments: "3000", capacity_tightness: "0.5", anomaly_rate: "0.04",
     trip_delay_rate: "0.2", scan_lag_rate: "0.05", delay_mode: "trip", cancel_rate: "0", capacity_correlation: "0",
@@ -162,7 +164,7 @@ function CreateScenario({ onCreated }: { onCreated: (sid: string) => void }) {
         </div>
       </fieldset>
       {error && <p className="text-sm text-critical" role="alert">{error}</p>}
-      <Button type="submit" className="w-full" disabled={create.isPending}>
+      <Button type="submit" className="w-full" disabled={create.isPending || !canEdit} title={canEdit ? undefined : READ_ONLY_HINT}>
         <Plus className="size-4" aria-hidden /> {create.isPending ? "Generating…" : "Generate scenario"}
       </Button>
     </form>

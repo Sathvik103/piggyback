@@ -9,6 +9,7 @@ import { createHashRouter, RouterProvider } from "react-router"
 import { AppShell } from "@/components/AppShell"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { AuthGate } from "@/lib/auth"
 import { ScenarioProvider } from "@/lib/scenario"
 import { QueuePage } from "@/pages/QueuePage"
 
@@ -43,9 +44,11 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
-          <ScenarioProvider>
-            <RouterProvider router={router} />
-          </ScenarioProvider>
+          <AuthGate>
+            <ScenarioProvider>
+              <RouterProvider router={router} />
+            </ScenarioProvider>
+          </AuthGate>
           <Toaster richColors position="bottom-right" />
         </TooltipProvider>
       </QueryClientProvider>

@@ -65,7 +65,7 @@ python scripts/eval_detection.py 30                        # detection over seed
 python -m benchmark.run                                    # head-to-head benchmark, 180 scenarios (~3 min) -> results/
 python -m benchmark.run --stress                           # same contest under harder conditions -> results/ROBUSTNESS.md
 (cd web && npm ci && npm run build)                        # build the web app into api/static
-(cd web && npm run e2e)                                    # Playwright end-to-end tests against the running API
+(cd web && npm run e2e)                                    # Playwright end-to-end tests against the running API (creates its own test users)
 (cd web && npm run screenshots)                            # re-capture the README screenshots into docs/img
 (cd web && npm run demo) && python scripts/make_demo_gif.py # re-record docs/img/demo.gif
 python -m benchmark.scaling                                # plan time and optimality from 3k to 40k shipments
@@ -80,7 +80,11 @@ docker compose --profile app up -d --build    # ...plus the API + web app contai
 python -m db migrate                         # apply db/migrations (the API also does this on start)
 python -m db load data/scenario_42           # load a simulator.cli folder, or:
 python -m db seed scenario_7 --seed 7        # generate straight into Postgres
+python -m db user add asha --name "Asha R."  # an operator account (prompts for a password)
+python -m db user add sam --role viewer      # read-only
 ```
+
+The web app and every API route except `/health`, `/benchmark` and `/auth/*` need a signed-in user, so create one before opening http://localhost:8000/. With the Docker app profile, run it inside the container: `docker compose exec api python -m db user add asha`.
 
 On Windows, `scripts/start_docker.ps1` starts Docker Desktop and the database. It works around a Docker Desktop bug where leftover socket files make it crash on start. The database is published on port **5433**, so it doesn't clash with a locally installed Postgres on 5432. Set `DATABASE_URL` to point elsewhere; tests use a separate `piggyback_test` database (`PIGGYBACK_TEST_DATABASE_URL`) that they wipe and re-migrate.
 
@@ -185,6 +189,7 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 | `GET /scenarios/{id}/shipments/{sid}/options` | Live recovery options for a flagged shipment, against capacity still free |
 | `POST /scenarios/{id}/decisions` | `ACCEPT` a plan's choice or a live option, `DISMISS` a false flag, or `REVOKE` the decision in force; 409 if the capacity is gone |
 | `GET /scenarios/{id}/decisions` | Decisions in force |
+| `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` | Sign in (sets the session cookie), sign out, and who is signed in |
 | `GET /scenarios/{id}/events` | Server-sent events: `decision` and `plan` as each one commits, `resync` if any may have been missed |
 | `GET /scenarios/{id}/evaluation/...` | Detection score, a plan's replay, and a replay of the committed decisions, all against ground truth |
 
@@ -194,6 +199,12 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 - **Planning:** plans and live options use the capacity left after holds, and a new plan only covers shipments nobody has decided on.
 - **No overbooking:** accepting locks the legs involved in leg-ID order, so two operators approving onto the same truck at the same moment can't overbook it or deadlock. A test races two threads to prove it.
 - **Live updates:** database triggers announce every committed decision and plan with Postgres `NOTIFY`, whoever wrote it. Each API process `LISTEN`s on one connection and relays the events to browsers as server-sent events, so operators see each other's work within a moment, even across API processes. Events carry ids only and clients re-fetch. After a dropped connection, or a client too slow to keep up, clients are told to re-sync, because events sent meanwhile are lost.
+
+**Accounts and access.**
+- **Sign-in:** `POST /auth/login` checks the password against a salted scrypt hash and sets an HttpOnly, SameSite=Lax session cookie, valid 12 hours. Only the token's SHA-256 is stored, so a leaked sessions table can't be replayed. `POST /auth/logout` ends the session server-side; changing a password or disabling a user ends all their sessions.
+- **Roles:** operators can decide, plan and create scenarios; viewers can see everything an operator sees but change nothing (403). Each decision records the signed-in user; whatever the request body claims is ignored.
+- **Abuse:** a wrong password and an unknown username get the same answer in about the same time, failed sign-ins are throttled per client and username (5 per 10 minutes, then 429), and changes carrying a foreign `Origin` header are refused.
+- **Accounts** are managed with `python -m db user add | passwd | list | disable | enable | remove`. Set `PIGGYBACK_SECURE_COOKIES=1` behind HTTPS.
 
 Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
 
@@ -236,8 +247,8 @@ docs/        DECISIONS.md
 - The CLIs (`simulator.cli`, `detection.cli`, `recovery.cli`) still work on CSV folders so benchmarks run without a database. The API and web app need Postgres.
 - Detections aren't stored: they're recomputed (and cached) from the scans, which is cheap and keeps them consistent with the detector's code.
 - The API has no authentication, and it allows cross-origin requests only from localhost. It's meant for local use.
-- The end-to-end tests cover each page's main path (accept, pick an alternative, dismiss, map layers, hub panel, benchmark, form validation) and fail on any browser console error. One test drives two browser sessions: a decision in one appears in the other without a reload. Every page is also checked with axe against WCAG 2.1 A/AA in light and dark themes (the WebGL map canvas is excluded; its hubs are keyboard-focusable buttons). A phone project (Pixel 7, touch) walks every page through the bottom tab bar, checks nothing scrolls sideways, runs axe again, and accepts a recovery by tap. They don't cover every edge case.
-- There's no login: decisions are recorded as "operator". It's a local, single-user tool for now.
+- The end-to-end tests cover each page's main path (accept, pick an alternative, dismiss, map layers, hub panel, benchmark, form validation) and fail on any browser console error. One test drives two browser sessions: a decision in one appears in the other without a reload. Every page is also checked with axe against WCAG 2.1 A/AA in light and dark themes (the WebGL map canvas is excluded; its hubs are keyboard-focusable buttons). Sign-in is tested as a user would do it (wrong password, right password, sign out), and a viewer is checked to be read-only. A phone project (Pixel 7, touch) walks every page through the bottom tab bar, checks nothing scrolls sideways, runs axe again, and accepts a recovery by tap. They don't cover every edge case.
+- Accounts are local to the database: there is no single sign-on, password reset by email, or per-scenario permissions. The sign-in throttle is kept in memory, per API process.
 - The replay checks each parcel's own plan against the truth, but doesn't re-simulate the whole network afterwards. A recovered parcel doesn't change other parcels' outcomes.
 - About 4% of hub pairs can't be completed before the timetable ends at hour 144 (long cross-country trips with several transfers). For those, recovery can only use a dedicated truck.
 - Road distances and corridor drive times are real (OSRM over OpenStreetMap, committed in `simulator/data/road_matrix.json`), but truck speed is scaled to an assumed 45 km/h network average. Vehicle costs and the ₹250 value of a late hour are assumed figures. Spare capacity is sampled rather than derived from real loads. The calibration numbers in `docs/DECISIONS.md` describe these assumptions, not real-world carriers.
