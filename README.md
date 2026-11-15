@@ -69,6 +69,7 @@ python -m benchmark.run --stress                           # same contest under 
 (cd web && npm run screenshots)                            # re-capture the README screenshots into docs/img
 (cd web && npm run demo) && python scripts/make_demo_gif.py # re-record docs/img/demo.gif
 python -m benchmark.scaling                                # plan time and optimality from 3k to 40k shipments
+python scripts/loadtest.py --out results/LOAD.md          # many operators at once against the running API
 python -m uvicorn api.app:create_app --factory --port 8000 # web app at http://localhost:8000/, API docs at /docs
 ```
 
@@ -190,6 +191,7 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 | `POST /scenarios/{id}/decisions` | `ACCEPT` a plan's choice or a live option, `DISMISS` a false flag, or `REVOKE` the decision in force; 409 if the capacity is gone |
 | `GET /scenarios/{id}/decisions` | Decisions in force |
 | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` | Sign in (sets the session cookie), sign out, and who is signed in |
+| `GET /metrics` | Prometheus metrics (loopback or bearer token) |
 | `GET /scenarios/{id}/events` | Server-sent events: `decision` and `plan` as each one commits, `resync` if any may have been missed |
 | `GET /scenarios/{id}/evaluation/...` | Detection score, a plan's replay, and a replay of the committed decisions, all against ground truth |
 
@@ -205,6 +207,12 @@ These are results on Piggyback's own simulator. The benchmark is built to be fai
 - **Roles:** operators can decide, plan and create scenarios; viewers can see everything an operator sees but change nothing (403). Each decision records the signed-in user; whatever the request body claims is ignored.
 - **Abuse:** a wrong password and an unknown username get the same answer in about the same time, failed sign-ins are throttled per client and username (5 per 10 minutes, then 429), and changes carrying a foreign `Origin` header are refused.
 - **Accounts** are managed with `python -m db user add | passwd | list | disable | enable | remove`. Set `PIGGYBACK_SECURE_COOKIES=1` behind HTTPS.
+
+**Operations.**
+- **Metrics:** `GET /metrics` serves Prometheus metrics: request rate and latency per route template, requests in flight, plans (count and solve time per solver), decisions by action, capacity conflicts, live-update subscribers, whether the Postgres listener is up, and database pool use. It's open to loopback clients, or to anyone with `Authorization: Bearer $PIGGYBACK_METRICS_TOKEN` when that is set.
+- **Tracing:** every response carries an `X-Request-ID` (the caller's, if it's sane). Every request is logged as one JSON line with that id, the route, the status, the signed-in user and its timings.
+- **Load:** `python scripts/loadtest.py` runs many operators working one queue at once, plus browsers on the live stream ([results/LOAD.md](results/LOAD.md)). On a laptop, 100 operators pausing about 3 s between actions see request p95 under 0.4 s (once caches are warm). Every decision reached every open browser, with p95 351 ms. Four worker processes give 2.2× the throughput of one.
+- **A fix the load test found:** in one process, the default 40-thread request pool starved the event loop that writes live updates (p50 4.9 s). Capping it at 4 threads (`PIGGYBACK_THREADS`) kept throughput the same and brought the p50 to 0.6 s.
 
 Only the `/evaluation/` routes read ground truth. A test checks that no operator route returns a truth field.
 

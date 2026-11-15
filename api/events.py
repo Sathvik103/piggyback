@@ -82,6 +82,10 @@ class EventHub:
             if not self._subs[sid]:
                 del self._subs[sid]
 
+    def subscribers_total(self) -> int:
+        with self._lock:
+            return sum(map(len, self._subs.values()))
+
     def subscribers(self, sid: str) -> int:
         with self._lock:
             return len(self._subs.get(sid, ()))

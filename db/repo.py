@@ -189,6 +189,14 @@ class Repo:
             rows = conn.execute(q + " ORDER BY shipment_id", args).fetchall()
         return [_option(r) for r in rows]
 
+    def choices_for_shipment(self, sid: str, shipment_id: str) -> list[tuple[int, RecoveryOption]]:
+        """Every plan's choice for one shipment, oldest plan first (one query)."""
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT plan_no, {', '.join(_OPTION_COLS)} FROM plan_choices "
+                "WHERE scenario_id = %s AND shipment_id = %s ORDER BY plan_no", (sid, shipment_id)).fetchall()
+        return [(r[0], _option(r[1:])) for r in rows]
+
     # ------------------------------------------------------------------ users and sessions
 
     def add_user(self, username: str, display_name: str, role: str, password: str) -> None:
@@ -298,6 +306,23 @@ class Repo:
         return {"decision_id": row[0], "decided_at": row[1].isoformat(), "scenario_id": sid,
                 "shipment_id": shipment_id, "action": action, "plan_no": plan_no,
                 "option": asdict(option) if option else None, "note": note, "decided_by": decided_by}
+
+    def decided_actions(self, sid: str) -> dict[str, str]:
+        """shipment_id -> action in force (ACCEPT / DISMISS): a light read for queue views."""
+        with self.pool.connection() as conn:
+            return dict(conn.execute("SELECT shipment_id, action FROM current_decisions "
+                                     "WHERE scenario_id = %s AND action <> %s", (sid, REVOKE)).fetchall())
+
+    def decision(self, sid: str, shipment_id: str) -> dict | None:
+        """The decision in force for one shipment (None if none, or revoked)."""
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            r = cur.execute(
+                "SELECT decision_id, shipment_id, action, plan_no, option, note, decided_by, decided_at "
+                "FROM current_decisions WHERE scenario_id = %s AND shipment_id = %s AND action <> %s",
+                (sid, shipment_id, REVOKE)).fetchone()
+        if r:
+            r["decided_at"] = r["decided_at"].isoformat()
+        return r
 
     def decisions(self, sid: str, in_force_only: bool = True) -> list[dict]:
         src = "current_decisions" if in_force_only else "decisions"

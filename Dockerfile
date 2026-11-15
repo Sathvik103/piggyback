@@ -32,4 +32,6 @@ USER piggyback
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-CMD ["uvicorn", "api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Request handling is CPU-bound Python: scale with processes (results/LOAD.md: 4 workers = 2.2x one).
+ENV WEB_CONCURRENCY=4
+CMD ["sh", "-c", "exec uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY} --no-access-log"]

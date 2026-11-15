@@ -16,33 +16,37 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
+import anyio
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
 from benchmark.report import benchmark_summary
 from db import DEFAULT_URL, Repo, migrate
 from detection import DetectorConfig, score
 from detection.detector import KIND_AT_RISK
-from detection.view import scans_by_shipment
 from recovery import OptionsConfig, RecoveryOption, replay
 from simulator.models import ScenarioConfig
 
 from . import auth
 from .events import EventHub
+from .observability import Metrics, ObservabilityMiddleware, configure_access_log, metrics_allowed
 from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, RouteContext, ScenarioStore
 
 DEFAULT_GRACE_H = DetectorConfig().grace_h
 _defaults = ScenarioConfig()
 STATIC_DIR = Path(__file__).parent / "static"  # web/ builds here (npm run build)
+DEFAULT_THREADS = 4  # see lifespan
 HEARTBEAT_S = 15.0  # keeps proxies from closing an idle event stream
 Grace = Query(DEFAULT_GRACE_H, ge=0.0, le=24.0)
 
@@ -98,14 +102,23 @@ def _choice(c: RecoveryOption, ctx: RouteContext) -> dict:
 
 
 def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> FastAPI:
+    metrics = Metrics()
+    configure_access_log()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Request handlers are CPU-bound Python that runs in worker threads; with the
+        # default 40 threads they starve the event loop that streams live updates (the
+        # GIL is shared). A few threads give the same throughput and keep streams prompt.
+        anyio.to_thread.current_default_thread_limiter().total_tokens = int(
+            os.environ.get("PIGGYBACK_THREADS", DEFAULT_THREADS))
         if run_migrations:
             migrate(database_url)
         repo = Repo(database_url)
         app.state.store = ScenarioStore(repo)
         app.state.events = EventHub(database_url)
         app.state.events.start(asyncio.get_running_loop())
+        metrics.watch(repo.pool, app.state.events)
         try:
             yield
         finally:
@@ -118,6 +131,8 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     app = FastAPI(title="Piggyback", version="0.8.0", lifespan=lifespan, dependencies=[Depends(_guard)],
                   description="Delay-aware shipment recovery on scheduled trips with spare capacity.")
     app.include_router(auth.router(lambda: app.state.store.repo))
+    app.add_middleware(ObservabilityMiddleware, metrics=metrics)
+    app.state.metrics = metrics
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
                        allow_methods=["GET", "POST"], allow_headers=["*"])
 
@@ -135,6 +150,7 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
 
     @app.exception_handler(CapacityConflict)
     async def _capacity(_: Request, exc: CapacityConflict):
+        metrics.capacity_conflicts.inc()
         return JSONResponse(status_code=409, content={"detail": str(exc), "legs": exc.legs})
 
     # ------------------------------------------------------------------ scenarios
@@ -142,6 +158,13 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     @app.get("/health")
     def health():
         return {"status": "ok", "scenarios": len(store().list())}
+
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus(request: Request):
+        if not metrics_allowed(request.client.host if request.client else None,
+                               request.headers.get("authorization")):
+            return JSONResponse(status_code=403, content={"detail": "metrics: loopback or bearer token only"})
+        return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/scenarios")
     def list_scenarios():
@@ -184,46 +207,43 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
                    limit: int = Query(500, ge=1, le=5000), offset: int = Query(0, ge=0)):
         """Flags, each with the operator decision in force on it (or null)."""
         s = store()
-        dets = s.detections(sid, grace_h)
-        decided = s.decisions(sid)
+        dets = s.detection_dicts(sid, grace_h)
+        decided = s.repo.decided_actions(sid)
         rows = [d for d in dets
-                if (kind is None or d.kind == kind) and (hub is None or d.suspected_hub == hub)
-                and (priority is None or d.priority == priority)
-                and (status == "all" or (status == "open") == (d.shipment_id not in decided))]
+                if (kind is None or d["kind"] == kind) and (hub is None or d["suspected_hub"] == hub)
+                and (priority is None or d["priority"] == priority)
+                and (status == "all" or (status == "open") == (d["shipment_id"] not in decided))]
         return {
             "now_h": s.view(sid).now,
             "grace_h": grace_h,
             "total": len(rows),
-            "stranded": sum(d.kind != KIND_AT_RISK for d in rows),
-            "open": sum(d.shipment_id not in decided for d in rows),
-            "by_kind": dict(sorted(Counter(d.kind for d in rows).items())),
-            "by_hub": dict(Counter(d.suspected_hub for d in rows).most_common()),
-            "items": [{**asdict(d), "decision": decided.get(d.shipment_id, {}).get("action")}
-                      for d in rows[offset:offset + limit]],
+            "stranded": sum(d["kind"] != KIND_AT_RISK for d in rows),
+            "open": sum(d["shipment_id"] not in decided for d in rows),
+            "by_kind": dict(sorted(Counter(d["kind"] for d in rows).items())),
+            "by_hub": dict(Counter(d["suspected_hub"] for d in rows).most_common()),
+            "items": [{**d, "decision": decided.get(d["shipment_id"])} for d in rows[offset:offset + limit]],
         }
 
     @app.get("/scenarios/{sid}/shipments/{shipment_id}")
     def shipment(sid: str, shipment_id: str, grace_h: float = Grace):
         s = store()
-        v = s.view(sid)
-        ship = next((x for x in v.shipments if x.shipment_id == shipment_id), None)
+        st = s.static(sid)
+        ship = st.ships.get(shipment_id)
         if ship is None:
             raise NotFound(shipment_id)
-        legs = {l.leg_id: l for l in v.legs}
-        ctx = s.route_context(sid)
-        det = next((d for d in s.detections(sid, grace_h) if d.shipment_id == shipment_id), None)
+        det = s.detection(sid, grace_h, shipment_id)
+        choices = s.repo.choices_for_shipment(sid, shipment_id)
         plans = []
-        for p in s.plans(sid):
-            choice = s.repo.plan_choices(sid, int(p["plan_id"][1:]), shipment_id)
-            if choice:
-                plans.append({"plan_id": p["plan_id"], "solver": p["solver"],
-                              "choice": _choice(choice[0], ctx)})
+        if choices:
+            ctx = s.route_context(sid)
+            solver = {p["plan_id"]: p["solver"] for p in s.plans(sid)}
+            plans = [{"plan_id": f"p{n}", "solver": solver.get(f"p{n}"), "choice": _choice(c, ctx)} for n, c in choices]
         return {
             "shipment": asdict(ship),
-            "booked_legs": [asdict(legs[i]) for i in ship.planned_legs.split(";")],
-            "scans": [asdict(e) for e in scans_by_shipment(v.scans).get(shipment_id, [])],
+            "booked_legs": [asdict(st.legs[i]) for i in ship.planned_legs.split(";")],
+            "scans": [asdict(e) for e in st.scans.get(shipment_id, [])],
             "detection": asdict(det) if det else None,
-            "decision": s.decisions(sid).get(shipment_id),
+            "decision": s.repo.decision(sid, shipment_id),
             "plans": plans,
         }
 
@@ -231,9 +251,11 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
     def shipment_options(sid: str, shipment_id: str, grace_h: float = Grace):
         """Live recovery options for a flagged shipment, against capacity still free."""
         s = store()
-        opts = s.options_for(sid, shipment_id, grace_h)
-        ctx = s.route_context(sid, free_for=shipment_id)
-        return [_choice(o, ctx) for o in opts]
+        if s.detection(sid, grace_h, shipment_id) is None:
+            s.check(sid)
+        cap = s.free_capacity(sid, free_for=shipment_id)  # one read, used for options and loads
+        opts = s.options_for(sid, shipment_id, grace_h, cap=cap)
+        return [_choice(o, s.route_context(sid, free=cap)) for o in opts]
 
     @app.get("/scenarios/{sid}/hubs/{hub_id}")
     def hub(sid: str, hub_id: str, window_h: float = Query(24.0, gt=0.0, le=144.0), grace_h: float = Grace):
@@ -260,7 +282,10 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         capacity still free."""
         s = store()
         s.check(sid)
-        return s.create_plan(sid, body.solver, body.grace_h, body.time_limit_s, body.include_at_risk)
+        p = s.create_plan(sid, body.solver, body.grace_h, body.time_limit_s, body.include_at_risk)
+        metrics.plans.labels(p["solver"], p["status"]).inc()
+        metrics.plan_seconds.labels(p["solver"]).observe(p["solve_s"])
+        return p
 
     @app.get("/scenarios/{sid}/plans")
     def list_plans(sid: str):
@@ -280,8 +305,10 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         """ACCEPT a recovery (from a plan or the live options), DISMISS a false flag, or
         REVOKE the decision in force. ACCEPT holds the spare capacity it uses; 409 if
         another accepted recovery got there first."""
-        return store().decide(sid, body.shipment_id, body.action, body.plan_id, body.option_id,
-                              body.note, auth.current_user(request)["username"], body.grace_h)
+        d = store().decide(sid, body.shipment_id, body.action, body.plan_id, body.option_id,
+                           body.note, auth.current_user(request)["username"], body.grace_h)
+        metrics.decisions.labels(body.action).inc()
+        return d
 
     @app.get("/scenarios/{sid}/events", response_class=StreamingResponse,
              responses={200: {"content": {"text/event-stream": {}}}})

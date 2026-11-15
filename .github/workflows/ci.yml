@@ -67,6 +67,8 @@ jobs:
           # fall back to the browser alone (the runner image already ships Chrome's libraries).
           timeout 300 npx playwright install --with-deps chromium || npx playwright install chromium
           npm run e2e
+      - name: Load test smoke run (the script works; numbers on CI runners mean little)
+        run: python scripts/loadtest.py --url http://localhost:8000 --operators 4 --viewers 4 --procs 2 --viewer-procs 1 --duration 10 --n-shipments 600
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

@@ -146,6 +146,15 @@ Decisions move real freight, so the log has to say who made each one, and not ev
 - **CSRF.** SameSite=Lax cookies plus refusing state changes that carry a foreign `Origin`. JSON-only endpoints mean a plain HTML form can't post to them either.
 - **No credentials in the repo.** The end-to-end setup creates its users through the CLI with fresh random passwords on every run and signs them in; the API tests do the same through a fixture.
 
+## Observability and load
+
+- **Metrics by route template.** Requests are labelled `/scenarios/{sid}/...`, never the raw path, so a scanner hitting random URLs can't blow up label cardinality (unmatched paths share one label). Latency is time to first byte, so the long-lived event stream doesn't skew it.
+- **Pure ASGI middleware.** Starlette's `BaseHTTPMiddleware` wraps responses in a way that interferes with streaming; a plain ASGI middleware only watches the response start and passes the body through.
+- **Untrusted request ids are replaced.** An incoming `X-Request-ID` is kept only if it's 1–64 safe characters, so callers can't inject newlines or junk into the logs.
+- **The load generator must not be the bottleneck.** The first version ran every client in one Python process. It saturated a core and under-reported the API by about 3×, and its late-connecting viewers made deliveries look lost. The final version runs operators and viewers in separate processes, starts them together on a barrier once everyone is connected, reports how busy each was, and counts only decisions inside the measurement window.
+- **Fewer threads, prompter streams.** The default 40-thread pool let CPU-bound handlers starve the event loop that pushes live updates (GIL contention): one process under stress delivered them with a 4.9 s median. Four threads gave the same throughput and a 0.6 s median. Throughput comes from worker processes instead, and the Docker image runs four.
+- **Hot paths cached, capacity never.** Per-scenario lookups that never change (scan index, shipments, legs, serialized detections) are built once. Free capacity is read from Postgres on every request, because other operators' decisions change it. A shipment's decision and its choices across all plans are each one query.
+
 ## Benchmark design
 
 A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_disruptions, n_shipments)`. The same tuple always reproduces the same scenario (tested).

@@ -4,9 +4,48 @@
     {
       "name": "api",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "uvicorn", "api.app:create_app", "--factory", "--port", "8000"],
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "api.app:create_app",
+        "--factory",
+        "--port",
+        "8000"
+      ],
       "port": 8000,
       "url": "http://localhost:8000"
+    },
+    {
+      "name": "api-1-worker",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "api.app:create_app",
+        "--factory",
+        "--port",
+        "8002",
+        "--no-access-log"
+      ],
+      "port": 8002,
+      "url": "http://localhost:8002"
+    },
+    {
+      "name": "api-4-workers",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "api.app:create_app",
+        "--factory",
+        "--port",
+        "8001",
+        "--workers",
+        "4",
+        "--no-access-log"
+      ],
+      "port": 8001,
+      "url": "http://localhost:8001"
     }
   ]
 }

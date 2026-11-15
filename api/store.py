@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import re
 import threading
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 
 from db import CapacityConflict, Repo
 from db.repo import ACCEPT, DISMISS, REVOKE, option_from_json
 from detection import Detection, DetectorConfig, OperatorView, detect
 from detection.detector import KIND_AT_RISK
+from detection.view import scans_by_shipment
 from recovery import SOLVERS, Network, OptionsConfig, Plan, RecoveryOption, generate_options
 from recovery.options import MODE_NONE
 from simulator import generate_scenario
@@ -56,6 +57,16 @@ class RouteContext:
     free: dict[str, tuple[float, float]]
 
 
+@dataclass(frozen=True)
+class Static:
+    """Lookups that never change for a scenario, built once."""
+    legs: dict
+    dest: dict[str, str]
+    ships: dict
+    scans: dict
+    totals: dict[str, tuple[float, float]]
+
+
 class ScenarioStore:
     def __init__(self, repo: Repo):
         self.repo = repo
@@ -63,7 +74,9 @@ class ScenarioStore:
         self._views: dict[str, OperatorView] = {}
         self._networks: dict[str, Network] = {}
         self._detections: dict[tuple[str, float], list[Detection]] = {}
-        self._totals: dict[str, dict[str, tuple[float, float]]] = {}
+        self._static: dict[str, Static] = {}
+        self._detection_index: dict[tuple[str, float], dict[str, Detection]] = {}
+        self._detection_dicts: dict[tuple[str, float], list[dict]] = {}
 
     # ------------------------------------------------------------------ scenarios
 
@@ -96,25 +109,39 @@ class ScenarioStore:
                 self._views[sid] = v
             return self._views[sid]
 
-    def route_context(self, sid: str, free_for: str | None = None) -> RouteContext:
-        """`free_for`: count that shipment's own accepted hold as free (its live options
-        are priced as if it gave its space back)."""
+    def static(self, sid: str) -> Static:
         view = self.view(sid)
         with self._lock:
-            if sid not in self._totals:
+            if sid not in self._static:
                 corridor = {c.corridor_id: c for c in view.corridors}
                 trip = {t.trip_id: corridor[t.corridor_id] for t in view.trips}
-                self._totals[sid] = {l.leg_id: (trip[l.trip_id].capacity_kg, trip[l.trip_id].capacity_m3)
-                                     for l in view.legs}
-        free = self.repo.residual_capacity(sid, view)
-        mine = self.decisions(sid).get(free_for) if free_for else None
+                self._static[sid] = Static(
+                    legs={l.leg_id: l for l in view.legs},
+                    dest={s.shipment_id: s.dest_hub for s in view.shipments},
+                    ships={s.shipment_id: s for s in view.shipments},
+                    scans=scans_by_shipment(view.scans),
+                    totals={l.leg_id: (trip[l.trip_id].capacity_kg, trip[l.trip_id].capacity_m3) for l in view.legs})
+            return self._static[sid]
+
+    def free_capacity(self, sid: str, free_for: str | None = None) -> dict[str, tuple[float, float]]:
+        """Spare capacity left after accepted recoveries. `free_for`: count that
+        shipment's own accepted hold as free (its options are priced as if it gave its
+        space back). Always read fresh: other operators' decisions change it."""
+        free = self.repo.residual_capacity(sid, self.view(sid))
+        mine = self.repo.decision(sid, free_for) if free_for else None
         if mine and mine["action"] == ACCEPT:
             o = mine["option"]
             for leg in o["capacity_legs"]:
                 kg, m3 = free[leg]
                 free[leg] = (kg + o["weight_kg"], m3 + o["volume_m3"])
-        return RouteContext({l.leg_id: l for l in view.legs}, {s.shipment_id: s.dest_hub for s in view.shipments},
-                            self._totals[sid], free)
+        return free
+
+    def route_context(self, sid: str, free_for: str | None = None,
+                      free: dict[str, tuple[float, float]] | None = None) -> RouteContext:
+        st = self.static(sid)
+        if free is None:
+            free = self.free_capacity(sid, free_for)
+        return RouteContext(st.legs, st.dest, st.totals, free)
 
     def network(self, sid: str) -> Network:
         with self._lock:
@@ -129,6 +156,23 @@ class ScenarioStore:
                 self._detections[key] = detect(self.view(sid), replace(DetectorConfig(), grace_h=grace_h))
             return self._detections[key]
 
+    def detection_dicts(self, sid: str, grace_h: float) -> list[dict]:
+        """Detections as JSON-ready dicts, cached (they never change for a grace period)."""
+        key = (sid, round(grace_h, 2))
+        dets = self.detections(sid, grace_h)
+        with self._lock:
+            if key not in self._detection_dicts:
+                self._detection_dicts[key] = [asdict(d) for d in dets]
+            return self._detection_dicts[key]
+
+    def detection(self, sid: str, grace_h: float, shipment_id: str) -> Detection | None:
+        key = (sid, round(grace_h, 2))
+        dets = self.detections(sid, grace_h)
+        with self._lock:
+            if key not in self._detection_index:
+                self._detection_index[key] = {d.shipment_id: d for d in dets}
+            return self._detection_index[key].get(shipment_id)
+
     def decisions(self, sid: str) -> dict[str, dict]:
         """Decisions in force, by shipment."""
         return {d["shipment_id"]: d for d in self.repo.decisions(sid)}
@@ -137,21 +181,18 @@ class ScenarioStore:
         decided = self.decisions(sid)
         return [d for d in self.detections(sid, grace_h) if d.shipment_id not in decided]
 
-    def options_for(self, sid: str, shipment_id: str, grace_h: float) -> list[RecoveryOption]:
+    def options_for(self, sid: str, shipment_id: str, grace_h: float,
+                    cap: dict[str, tuple[float, float]] | None = None) -> list[RecoveryOption]:
         """Live options for one flagged shipment, against what capacity is left. The
-        shipment's own accepted hold, if any, counts as free for it."""
-        view = self.view(sid)
-        det = next((d for d in self.detections(sid, grace_h) if d.shipment_id == shipment_id), None)
+        shipment's own accepted hold, if any, counts as free for it. Pass `cap` (from
+        `free_capacity(sid, free_for=shipment_id)`) to reuse one capacity read."""
+        det = self.detection(sid, grace_h, shipment_id)
         if det is None:
             raise NotFound(f"{shipment_id} is not flagged at grace {grace_h} h")
-        cap = self.repo.residual_capacity(sid, view)
-        mine = self.decisions(sid).get(shipment_id)
-        if mine and mine["action"] == ACCEPT:
-            o = mine["option"]
-            for leg in o["capacity_legs"]:
-                kg, m3 = cap[leg]
-                cap[leg] = (kg + o["weight_kg"], m3 + o["volume_m3"])
-        return generate_options(view, [det], OptionsConfig(), network=self.network(sid), capacity=cap)[shipment_id]
+        if cap is None:
+            cap = self.free_capacity(sid, free_for=shipment_id)
+        return generate_options(self.view(sid), [det], OptionsConfig(), network=self.network(sid),
+                                capacity=cap)[shipment_id]
 
     # ------------------------------------------------------------------ plans
 
@@ -194,7 +235,7 @@ class ScenarioStore:
     def decide(self, sid: str, shipment_id: str, action: str, plan_id: str | None, option_id: str | None,
                note: str, decided_by: str, grace_h: float) -> dict:
         self.check(sid)
-        if not any(s.shipment_id == shipment_id for s in self.view(sid).shipments):
+        if shipment_id not in self.static(sid).ships:
             raise NotFound(shipment_id)
         option, n = None, None
         if action == ACCEPT:

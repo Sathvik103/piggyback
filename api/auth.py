@@ -26,7 +26,8 @@ from db.repo import SESSION_HOURS
 
 COOKIE = "pb_session"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-PUBLIC_EXACT = {"/", "/health", "/benchmark", "/dashboard/", "/openapi.json", "/docs", "/redoc"}
+PUBLIC_EXACT = {"/", "/health", "/benchmark", "/dashboard/", "/openapi.json", "/docs", "/redoc",
+                "/metrics"}  # /metrics checks its own access (loopback or a bearer token)
 PUBLIC_PREFIXES = ("/auth/", "/app/", "/docs/")
 LOCAL_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
 MAX_FAILURES, FAILURE_WINDOW_S = 5, 600
