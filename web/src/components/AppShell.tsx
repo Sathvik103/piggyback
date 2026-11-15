@@ -1,8 +1,9 @@
 import { ChartColumn, FlaskConical, Inbox, ListChecks, LogOut, Map as MapIcon, Moon, RefreshCw, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { NavLink, Outlet } from "react-router"
+import { NavLink, Outlet, useLocation } from "react-router"
 import { toast } from "sonner"
 
+import { LogoMark, Wordmark } from "@/components/Logo"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -28,12 +29,7 @@ export function AppShell() {
   return (
     <div className="app-backdrop flex h-dvh min-h-0 flex-col text-foreground md:flex-row">
       <nav aria-label="Main" className="glass-bar hidden w-[76px] shrink-0 flex-col items-center gap-1.5 border-r border-border/60 py-3 md:flex">
-        <div
-          className="mb-4 flex size-9 items-center justify-center rounded-xl bg-gradient-to-b from-[#5b87d4] to-[#2f5ea8] text-[13px] font-semibold tracking-tight text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_12px_-4px_rgb(47_94_168/0.55)]"
-          aria-hidden
-        >
-          Pb
-        </div>
+        <LogoMark size={38} className="mb-4 drop-shadow-[0_6px_14px_rgb(42_85_162/0.35)]" />
         {NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
@@ -41,14 +37,18 @@ export function AppShell() {
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex w-[62px] flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground",
+                "relative flex w-[62px] flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground",
                 isActive &&
-                  "surface font-medium text-foreground !rounded-xl",
+                  "bg-s1/[0.08] font-medium text-foreground ring-1 ring-s1/15 before:absolute before:top-1/2 before:-left-[7px] before:h-6 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-s1",
               )
             }
           >
-            <Icon className="size-5" aria-hidden />
-            {label}
+            {({ isActive }) => (
+              <>
+                <Icon className={cn("size-5 transition-colors", isActive && "text-s1")} aria-hidden />
+                {label}
+              </>
+            )}
           </NavLink>
         ))}
         <div className="flex-1" />
@@ -57,10 +57,22 @@ export function AppShell() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
         <main className="min-h-0 flex-1 overflow-auto focus-visible:outline-none" tabIndex={0}>
-          <Outlet />
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
         </main>
       </div>
       <BottomNav />
+    </div>
+  )
+}
+
+/** A gentle fade and lift when the page changes (none for reduced motion). */
+function PageTransition({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation()
+  return (
+    <div key={pathname} className="h-full animate-in fade-in-0 slide-in-from-bottom-1 duration-300 motion-reduce:animate-none">
+      {children}
     </div>
   )
 }
@@ -116,7 +128,10 @@ function TopBar() {
 
   return (
     <header className="glass-bar sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-4 py-2.5 md:gap-x-4 md:px-5">
-      <div className="text-[15px] font-semibold tracking-tight">Piggyback</div>
+      <div className="flex items-center gap-2">
+        <LogoMark size={26} className="md:hidden" />
+        <Wordmark />
+      </div>
       <Select value={sid ?? undefined} onValueChange={setSid}>
         <SelectTrigger size="sm" className="w-32 sm:w-44" aria-label="Scenario">
           <SelectValue placeholder="Scenario" />
@@ -129,15 +144,18 @@ function TopBar() {
           ))}
         </SelectContent>
       </Select>
-      {summary.data && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-sm text-muted-foreground tabular-nums">{dayTime(summary.data.start_at, summary.data.now_h)} IST</span>
-          </TooltipTrigger>
-          <TooltipContent>Simulated "now". Every time in the app is relative to it.</TooltipContent>
-        </Tooltip>
-      )}
-      <LiveBadge status={live} />
+      <span className="chip">
+        {summary.data && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="hidden tabular-nums sm:inline">{dayTime(summary.data.start_at, summary.data.now_h)} IST</span>
+            </TooltipTrigger>
+            <TooltipContent>Simulated "now". Every time in the app is relative to it.</TooltipContent>
+          </Tooltip>
+        )}
+        <span className="hidden h-3 w-px bg-border sm:block" aria-hidden />
+        <LiveBadge status={live} />
+      </span>
       <div className="hidden flex-1 md:block" />
       <label className="flex items-center gap-2 text-sm text-muted-foreground">
         <span className="hidden sm:inline">Grace</span>
@@ -154,12 +172,13 @@ function TopBar() {
           </SelectContent>
         </Select>
       </label>
-      <span className="hidden text-sm text-muted-foreground lg:inline">
+      <span className="chip hidden lg:inline-flex">
+        <span className={cn("size-1.5 rounded-full", latest ? (latest.status === "OPTIMAL" ? "bg-good" : "bg-s1") : "bg-muted-foreground")} aria-hidden />
         {latest ? (
-          <>
+          <span>
             Plan <span className="font-medium text-foreground">{latest.plan_id}</span> · {latest.solver === "cpsat" ? "CP-SAT" : latest.solver}
             {latest.status === "OPTIMAL" ? " · optimal" : ""}
-          </>
+          </span>
         ) : (
           "No plan yet"
         )}

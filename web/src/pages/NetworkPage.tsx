@@ -1,6 +1,7 @@
 import { AlertTriangle, Ban, Truck, X } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
+import { PageHeader } from "@/components/Metric"
 import { type Hop, NetworkMap } from "@/components/NetworkMap"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -62,7 +63,9 @@ export function NetworkPage() {
   )
 
   return (
-    <div className="grid min-h-full grid-cols-1 gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="flex min-h-full flex-col gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0">
+    <PageHeader title="Network" description="Where parcels are stuck, how the plan moves them, and what is disrupted." />
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
       <section className="relative h-[62dvh] min-h-[360px] overflow-hidden surface lg:h-auto lg:min-h-[420px]">
         {net.data ? (
           <NetworkMap geo={net.data} counts={counts} selectedHub={hub} closedHubs={closed} hops={hops} dedicated={dedicated} delayedLanes={delayed} onHubClick={pickHub} />
@@ -107,6 +110,7 @@ export function NetworkPage() {
           </ul>
         </section>
       </aside>
+    </div>
     </div>
   )
 }

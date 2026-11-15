@@ -1,6 +1,7 @@
 import { LogIn } from "lucide-react"
 import { useState, type FormEvent } from "react"
 
+import { LogoMark } from "@/components/Logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api, ApiError, type User } from "@/lib/api"
@@ -35,12 +36,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (u: User) => void }) {
     <main className="app-backdrop flex min-h-dvh items-center justify-center p-4">
       <form onSubmit={submit} aria-label="Sign in" className="w-full max-w-sm space-y-5 surface p-6 sm:p-8">
         <div className="flex items-center gap-3">
-          <div
-            className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-b from-[#5b87d4] to-[#2f5ea8] text-sm font-semibold tracking-tight text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_12px_-4px_rgb(47_94_168/0.55)]"
-            aria-hidden
-          >
-            Pb
-          </div>
+          <LogoMark size={44} className="drop-shadow-[0_8px_18px_rgb(42_85_162/0.35)]" />
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Sign in to Piggyback</h1>
             <p className="text-sm text-muted-foreground">Shipment recovery console</p>
@@ -61,7 +57,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (u: User) => void }) {
           <LogIn className="size-4" aria-hidden /> {busy ? "Signing in…" : "Sign in"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Accounts are created by an administrator with <code className="rounded bg-muted px-1">python -m db user add</code>.
+          Accounts are created by an administrator with <code className="rounded bg-muted px-1 whitespace-nowrap">python -m db user add</code>.
         </p>
       </form>
     </main>

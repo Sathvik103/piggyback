@@ -1,8 +1,9 @@
-import { FlaskConical, Play } from "lucide-react"
+import { CircleCheck, FlaskConical, IndianRupee, Package, Play, Scale, Timer } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { useQuery } from "@tanstack/react-query"
 
+import { Metric, PageHeader } from "@/components/Metric"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -48,7 +49,9 @@ export function PlansPage() {
     )
 
   return (
-    <div className="grid min-h-full grid-cols-1 gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)]">
+    <div className="flex min-h-full flex-col gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0">
+    <PageHeader title="Plans" description="Optimise every open parcel at once against shared truck space, and review what each plan chose." />
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
       <aside className="flex min-h-0 flex-col gap-4">
         <section className="space-y-3 surface p-4">
           <h2 className="text-sm font-semibold">Run a plan</h2>
@@ -102,6 +105,7 @@ export function PlansPage() {
         <TabsContent value="log"><DecisionLog /></TabsContent>
       </Tabs>
     </div>
+    </div>
   )
 }
 
@@ -120,11 +124,11 @@ function PlanDetail({ planId }: { planId: string }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Stat label="Parcels planned" value={String(p.shipments)} />
-        <Stat label="Planned on time" value={`${onTime}`} sub={`of ${p.shipments}`} />
-        <Stat label="Money spent" value={inr(p.cost_inr)} />
-        <Stat label="Objective (cost + lateness)" value={lakh(p.objective_inr)} />
-        <Stat label="Solve time" value={`${p.solve_s.toFixed(2)} s`} sub={`${words(p.status)} · ${p.options_considered} options`} />
+        <Metric compact icon={Package} tone="accent" label="Parcels planned" value={String(p.shipments)} sub={`plan ${p.plan_id}`} />
+        <Metric compact icon={CircleCheck} tone="good" label="Planned on time" value={`${onTime}`} sub={`of ${p.shipments} parcels`} progress={onTime / Math.max(1, p.shipments)} />
+        <Metric compact icon={IndianRupee} label="Money spent" value={inr(p.cost_inr)} sub="trucks and handling" />
+        <Metric compact icon={Scale} label="Objective" value={lakh(p.objective_inr)} sub="cost + lateness" />
+        <Metric compact icon={Timer} label="Solve time" value={`${p.solve_s.toFixed(2)} s`} sub={`${p.options_considered.toLocaleString("en-IN")} options`} hint={words(p.status)} />
       </div>
 
       <section className="surface surface-dashed p-4">
@@ -228,9 +232,11 @@ function DecisionLog() {
   )
 }
 
+
+/** A compact figure for the lab-only replay panel. */
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "critical" }) {
   return (
-    <div className="surface px-4 py-3">
+    <div className="rounded-xl bg-foreground/[0.025] px-4 py-3 ring-1 ring-border/60">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("text-xl font-semibold tabular-nums", tone === "good" && "text-good", tone === "critical" && "text-critical")}>{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}

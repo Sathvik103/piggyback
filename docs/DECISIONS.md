@@ -155,6 +155,13 @@ Decisions move real freight, so the log has to say who made each one, and not ev
 - **Fewer threads, prompter streams.** The default 40-thread pool let CPU-bound handlers starve the event loop that pushes live updates (GIL contention): one process under stress delivered them with a 4.9 s median. Four threads gave the same throughput and a 0.6 s median. Throughput comes from worker processes instead, and the Docker image runs four.
 - **Hot paths cached, capacity never.** Per-scenario lookups that never change (scan index, shipments, legs, serialized detections) are built once. Free capacity is read from Postgres on every request, because other operators' decisions change it. A shipment's decision and its choices across all plans are each one query.
 
+## The map
+
+- **Our own base map, not a tile service.** India, its states and its neighbours, from Natural Earth's India point-of-view edition, clipped and simplified to 171 KB (`scripts/build_basemap.py`). It needs no API key, licence or network, it themes exactly with the app in light and dark, and India's boundaries follow the official map of India. Most OpenStreetMap-based tiles don't, which an Indian user would notice.
+- **MapLibre for the land, deck.gl for the network.** MapLibre draws the base map and the hub markers. deck.gl draws the lanes as curves (both directions of a lane share one curve, so a plan's hop sits exactly on its lane), plan traffic as width-weighted lines with a soft underglow, and moving pulses along each hop in its direction of travel. The pulses stay still for users who ask for reduced motion.
+- **Hubs stay HTML buttons**, so they keep keyboard focus, screen-reader names and the end-to-end tests. CSS lifts them above deck.gl's canvas. On narrow maps the dots shrink and only the selected hub is labelled, so labels don't collide on a phone.
+- **Two deck.gl gotchas, both caught before shipping.** Dashes are measured along the whole path: by default deck.gl 9.4 restarts them on every segment, which made finely sampled curves look solid. And a layer keeps the dash extension for life, switching only its pattern; adding and removing the extension on a live layer broke rendering, which the end-to-end tests' console check caught.
+
 ## Benchmark design
 
 A benchmark case is `(seed, capacity_tightness, anomaly_rate, n_incidents, n_disruptions, n_shipments)`. The same tuple always reproduces the same scenario (tested).

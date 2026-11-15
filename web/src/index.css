@@ -141,6 +141,13 @@
     --serious: #b5562c;
     --critical: #c24141;
     --lane: #d9d7d0;
+    /* Map: a quiet base so the network reads first. */
+    --map-sea: #e8edf3;
+    --map-neighbour: #dde2e9;
+    --map-land: #ffffff;
+    --map-edge: #c4ccd8;
+    --map-state: #e4e1da;
+    --map-lane: #c5cad3;
 }
 .dark {
     --s1: #7aa3e6;
@@ -150,6 +157,12 @@
     --serious: #df9470;
     --critical: #e58585;
     --lane: #3a3a37;
+    --map-sea: #0d1015;
+    --map-neighbour: #14181e;
+    --map-land: #1b2027;
+    --map-edge: #2c3440;
+    --map-state: #252b34;
+    --map-lane: #3b4350;
 }
 @theme inline {
     --color-s1: var(--s1);
@@ -183,6 +196,19 @@
             0 16px 40px -20px rgb(0 0 0 / 0.7);
     }
     .surface-dashed { border-style: dashed; }
+    /* Small status pills in the header. */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        height: 2rem;
+        padding: 0 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+        background: color-mix(in oklab, var(--background) 60%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 90%, transparent);
+    }
     .app-backdrop {
         background:
             radial-gradient(1100px 520px at 75% -12%, color-mix(in oklab, var(--s1) 7%, transparent), transparent 70%),
@@ -207,27 +233,60 @@
     padding: 0;
     cursor: pointer;
 }
+/* A glossy bead: a white rim, a soft drop shadow and a slight top-lit gradient. */
 .pb-hub-dot {
-    display: block;
+    display: grid;
+    place-items: center;
     border-radius: 9999px;
-    background: var(--s1);
-    border: 2px solid var(--background);
-    transition: width 0.2s, height 0.2s;
+    background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--s1) 55%, white), var(--s1) 70%);
+    box-shadow: 0 0 0 2px var(--map-land), 0 2px 6px -1px rgb(16 24 40 / 0.35), 0 0 0 6px color-mix(in oklab, var(--s1) 14%, transparent);
+    transition: width 0.25s ease, height 0.25s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
-.pb-hub[data-compact="true"] .pb-hub-dot { background: var(--muted-foreground); }
-.pb-hub[data-onroute="true"] .pb-hub-dot { background: var(--s1); }
-.pb-hub[data-closed="true"] .pb-hub-dot { outline: 2.5px solid var(--critical); outline-offset: 1px; }
-.pb-hub[data-selected="true"] .pb-hub-dot { outline: 2.5px solid var(--foreground); outline-offset: 1px; }
-.pb-hub:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 4px; }
+.pb-hub-core { width: 32%; height: 32%; border-radius: 9999px; background: rgb(255 255 255 / 0.85); }
+.pb-hub[data-busy="false"] .pb-hub-dot {
+    background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--muted-foreground) 35%, white), color-mix(in oklab, var(--muted-foreground) 75%, var(--map-land)));
+    box-shadow: 0 0 0 2px var(--map-land), 0 1px 3px rgb(16 24 40 / 0.25);
+}
+.pb-hub[data-compact="true"] .pb-hub-dot { box-shadow: 0 0 0 1.5px var(--map-land), 0 1px 3px rgb(16 24 40 / 0.3); }
+.pb-hub[data-compact="true"] .pb-hub-core { display: none; }
+.pb-hub[data-onroute="true"] .pb-hub-dot { background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--s1) 55%, white), var(--s1) 70%); }
+.pb-hub:hover .pb-hub-dot { transform: scale(1.08); }
+.pb-hub[data-closed="true"] .pb-hub-dot { box-shadow: 0 0 0 2px var(--map-land), 0 0 0 4px var(--critical), 0 2px 6px -1px rgb(16 24 40 / 0.35); }
+.pb-hub[data-selected="true"] .pb-hub-dot { box-shadow: 0 0 0 2px var(--map-land), 0 0 0 4px var(--foreground), 0 4px 12px -2px rgb(16 24 40 / 0.45); }
+.pb-hub:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 6px; }
 .pb-hub-label {
     position: absolute;
-    top: 100%;
-    margin-top: 2px;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 5px;
+    padding: 1px 6px;
+    border-radius: 9999px;
     font-size: 10.5px;
     font-weight: 600;
+    letter-spacing: 0.02em;
     color: var(--foreground);
-    text-shadow: 0 0 3px var(--background), 0 0 3px var(--background);
+    background: color-mix(in oklab, var(--map-land) 78%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--map-edge) 70%, transparent), 0 1px 2px rgb(16 24 40 / 0.08);
     white-space: nowrap;
     pointer-events: none;
 }
+.pb-hub[data-busy="false"]:not([data-selected="true"]) .pb-hub-label { color: var(--muted-foreground); font-weight: 500; }
 .pb-hub[data-compact="true"][data-onroute="false"] .pb-hub-label { display: none; }
+/* deck.gl puts its route canvas in MapLibre's top-left control slot (z-index 2): lift
+   the hub markers above it, and keep the zoom buttons above both. */
+.maplibregl-marker { z-index: 3; }
+.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 4 !important; }
+/* Narrow maps (phones): smaller dots, and a label only for the selected hub; every
+   hub stays a named button you can tap. */
+.pb-map { container-type: inline-size; }
+@container (max-width: 640px) {
+    .pb-hub-dot { scale: 0.72; }
+    .pb-hub:not([data-selected="true"]) .pb-hub-label { display: none; }
+}
+/* Map chrome: glassy zoom buttons. */
+.maplibregl-ctrl-group { border-radius: 12px !important; overflow: hidden; background: color-mix(in oklab, var(--background) 80%, transparent) !important; backdrop-filter: blur(10px); box-shadow: 0 0 0 1px color-mix(in oklab, var(--border) 90%, transparent), 0 6px 18px -10px rgb(16 24 40 / 0.35) !important; }
+.maplibregl-ctrl-group button + button { border-top-color: var(--border) !important; }
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }

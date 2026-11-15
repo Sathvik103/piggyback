@@ -1,6 +1,7 @@
-import { Inbox } from "lucide-react"
+import { CircleCheck, Clock, Eye, Inbox } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { Metric, PageHeader } from "@/components/Metric"
 import { RecoveryCard } from "@/components/RecoveryCard"
 import { Kbd } from "@/components/ui/kbd"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -109,11 +110,19 @@ export function QueuePage() {
 
   return (
     <div className="flex min-h-full flex-col gap-4 p-3 sm:p-4 lg:h-full lg:min-h-0">
+      <PageHeader
+        title="Exceptions"
+        description={detections.isLoading ? "Loading the queue…" : `${groups.open.length} stranded parcels need a decision, most urgent first.`}
+      />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Needs a decision" value={groups.open.length} loading={detections.isLoading} />
-        <Kpi label="Due within 12 h" value={dueSoon} tone={dueSoon ? "critical" : undefined} loading={detections.isLoading} />
-        <Kpi label="Watching (at risk)" value={groups.watching.length} hint="Late trucks; acted on once they strand" loading={detections.isLoading} />
-        <Kpi label="Decided" value={groups.decided.length} loading={detections.isLoading} />
+        <Metric icon={Inbox} tone="accent" label="Needs a decision" value={groups.open.length} sub="stranded now" loading={detections.isLoading} />
+        <Metric icon={Clock} tone={dueSoon ? "critical" : "neutral"} valueTone={dueSoon ? "critical" : undefined} label="Due within 12 h"
+          value={dueSoon} sub={dueSoon ? "act on these first" : "nothing urgent"} loading={detections.isLoading} />
+        <Metric icon={Eye} label="Watching (at risk)" value={groups.watching.length} sub="late trucks, not stranded yet"
+          hint="Late trucks; acted on once they strand" loading={detections.isLoading} />
+        <Metric icon={CircleCheck} tone="good" label="Decided" value={groups.decided.length} loading={detections.isLoading}
+          sub={`${groups.decided.length} of ${groups.decided.length + groups.open.length} handled`}
+          progress={groups.decided.length / Math.max(1, groups.decided.length + groups.open.length)} />
       </div>
 
       {!plans.isLoading && !plans.data?.length && groups.open.length > 0 && (
@@ -259,15 +268,6 @@ function QueueRow({ d, nowH, choice, active, onClick }: { d: Detection; nowH: nu
         ) : null}
       </div>
     </button>
-  )
-}
-
-function Kpi({ label, value, tone, hint, loading }: { label: string; value: number; tone?: "critical"; hint?: string; loading?: boolean }) {
-  return (
-    <div className="surface px-4 py-3" title={hint}>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      {loading ? <Skeleton className="mt-1 h-7 w-12" /> : <div className={cn("text-2xl font-semibold tabular-nums", tone === "critical" && "text-critical")}>{value}</div>}
-    </div>
   )
 }
 

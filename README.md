@@ -1,4 +1,4 @@
-# Piggyback
+# <img src="docs/img/logo.svg" width="36" align="top" alt=""> Piggyback
 
 [![CI](https://github.com/Sathvik103/piggyback/actions/workflows/ci.yml/badge.svg)](https://github.com/Sathvik103/piggyback/actions/workflows/ci.yml)
 
@@ -47,7 +47,7 @@ flowchart LR
 | `recovery/` | Delay- and disruption-aware planning network, recovery options, CP-SAT optimizer with greedy and do-nothing baselines, replay against the truth. |
 | `benchmark/` | Head-to-head vs carrier-style policies, plus ablations, paired 95% CIs, a sensitivity analysis and stress tests. |
 | `db/`, `api/` | Postgres as system of record (migrations, append-only decisions, capacity holds that can't be overbooked), FastAPI. |
-| `web/` | React + TypeScript operator console (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre). |
+| `web/` | React + TypeScript operator console (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre + deck.gl). |
 
 **Status:** all 7 planned steps are built, with CI (lint, tests against PostGIS, Playwright end-to-end and axe accessibility tests, benchmark smoke run) and Docker. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions and their trade-offs.
 
@@ -218,7 +218,7 @@ Only the `/evaluation/` routes read ground truth. A test checks that no operator
 
 ## Web app
 
-`web/` is a React 19 + TypeScript app built with Vite, Tailwind and shadcn/ui, using TanStack Query for data and MapLibre for maps. `npm run build` writes it to `api/static`, and the API serves it at `/app/` (`/` redirects there). For development, `npm run dev` in `web/` proxies API calls to `localhost:8000`.
+`web/` is a React 19 + TypeScript app built with Vite, Tailwind and shadcn/ui, using TanStack Query for data, and MapLibre with deck.gl for maps. `npm run build` writes it to `api/static`, and the API serves it at `/app/` (`/` redirects there). For development, `npm run dev` in `web/` proxies API calls to `localhost:8000`.
 
 - **Queue** (home): the operator's work list. Flagged parcels are sorted by how soon they're due, and can be filtered by priority and kind, and split into open, watching (at risk) and decided. The recovery card shows:
   - what happened, with the detector's evidence and recent scans
@@ -226,12 +226,12 @@ Only the `/evaluation/` routes read ground truth. A test checks that no operator
   - a one-line reason for the recommendation: the lowest money spent plus lateness, compared with the fastest alternative
 
   Operators can **accept** it, **pick an alternative**, or **dismiss** a false alarm. If another accepted recovery took the space first, the API returns 409 and the card refreshes its options. A mini map shows the original booking (dotted) and the recovery (bold). Keyboard: J/K move, A accept, D dismiss, 1–9 pick an option.
-- **Network:** the full lane map, with hubs sized by parcels needing a decision and the latest plan's piggyback hops (width = parcels). Dedicated trucks are dashed, lane delays and hub closures use the reserved status colours with icons, and clicking a hub lists its next 24 h of departures with free capacity.
+- **Network:** India with its states and neighbours, the lanes drawn as gentle curves, hubs sized by parcels needing a decision, and the latest plan's piggyback hops (width = parcels) with traffic flowing along them in the direction of travel (still if the system asks for reduced motion). Dedicated trucks are dashed, lane delays and hub closures use the reserved status colours with icons, and clicking a hub lists its next 24 h of departures with free capacity.
 - **Plans:** run CP-SAT, greedy or do-nothing, optionally including at-risk parcels. Browse saved plans and their choices, and read the full decision log. A dashed "lab only" panel replays a plan against the ground truth.
 - **Benchmark:** the head-to-head results from `/benchmark`: the headline with its confidence interval, the stress plot, where the gain comes from, all policies, results by capacity tightness, and the method.
 - **Lab:** the scenario list; generating new ones (including the stress conditions); and detection precision and recall against the truth.
 
-A Live badge in the header shows the event stream's state. When another session decides or plans, the queue, map and plans refresh in place, and a short notice says what changed. Times show in IST, relative to each scenario's simulated "now". Light and dark themes are both supported. On phones the side rail becomes a bottom tab bar, panels stack, tapping a parcel or hub scrolls its detail into view, and the map legend folds away. Only the plan replay and detection scoring read ground truth, and both are opt-in and visibly marked as lab features. The map draws the lane network without third-party basemap tiles, so it works offline and avoids drawing contested borders.
+A Live badge in the header shows the event stream's state. When another session decides or plans, the queue, map and plans refresh in place, and a short notice says what changed. Times show in IST, relative to each scenario's simulated "now". Light and dark themes are both supported. On phones the side rail becomes a bottom tab bar, panels stack, tapping a parcel or hub scrolls its detail into view, and the map legend folds away. Only the plan replay and detection scoring read ground truth, and both are opt-in and visibly marked as lab features. The base map is built from Natural Earth's India point-of-view boundaries (`python scripts/build_basemap.py`, 171 KB, committed): no tile server or API key, it works offline, and India's borders match the official map of India rather than OpenStreetMap's.
 
 ## Layout
 
@@ -240,7 +240,7 @@ simulator/   models, hub data, generator, CSV/JSON export, CLI
 detection/   operator view (no truth), detector, scoring, CLI
 recovery/    planner's timetable, options, CP-SAT/greedy optimizer, replay vs truth, CLI
 api/         FastAPI app and the scenario store behind it; serves the built web app from static/
-web/         React + TypeScript web app (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre)
+web/         React + TypeScript web app (Vite, Tailwind, shadcn/ui, TanStack Query, MapLibre + deck.gl)
 db/          migrations/, migration runner, repository, `python -m db` admin CLI
 benchmark/   baseline + ablation policies, grid runner, report
 results/     benchmark.csv + REPORT.md, stress.csv + ROBUSTNESS.md from the last full runs
@@ -262,5 +262,7 @@ docs/        DECISIONS.md
 - Road distances and corridor drive times are real (OSRM over OpenStreetMap, committed in `simulator/data/road_matrix.json`), but truck speed is scaled to an assumed 45 km/h network average. Vehicle costs and the ₹250 value of a late hour are assumed figures. Spare capacity is sampled rather than derived from real loads. The calibration numbers in `docs/DECISIONS.md` describe these assumptions, not real-world carriers.
 
 ## Data credits
+
+Country and state boundaries come from [Natural Earth](https://www.naturalearthdata.com/) (public domain), using its India point-of-view edition.
 
 Road distances and drive times between hubs come from the [OSRM](https://project-osrm.org/) table service over [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors, available under the Open Database License.

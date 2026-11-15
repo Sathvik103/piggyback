@@ -13,6 +13,7 @@ import { api } from "@/lib/api"
 import { dayTime } from "@/lib/format"
 import { useCreateScenario, useScenarios } from "@/lib/queries"
 import { READ_ONLY_HINT, useAuth } from "@/lib/auth"
+import { PageHeader } from "@/components/Metric"
 import { useScenario } from "@/lib/scenario"
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -21,7 +22,9 @@ export function LabPage() {
   const { sid, setSid } = useScenario()
   const scenarios = useScenarios()
   return (
-    <div className="grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="space-y-4 p-3 sm:p-4">
+    <PageHeader title="Lab" description="Generate scenarios, including the stress conditions, and score detection against the hidden truth." />
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-4">
         <section className="surface">
           <h2 className="border-b px-4 py-2.5 text-sm font-semibold">Scenarios</h2>
@@ -61,6 +64,7 @@ export function LabPage() {
         <DetectionQuality />
       </div>
       <CreateScenario onCreated={setSid} />
+    </div>
     </div>
   )
 }
