@@ -222,6 +222,12 @@
     }
 }
 
+/* The replay's time slider: a slim track with a glossy thumb. */
+.pb-range { appearance: none; height: 6px; border-radius: 9999px; background: color-mix(in oklab, var(--foreground) 10%, transparent); outline: none; }
+.pb-range:focus-visible { box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent); }
+.pb-range::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: var(--s1); box-shadow: 0 0 0 3px var(--background), 0 2px 6px rgb(16 24 40 / 0.35); cursor: pointer; }
+.pb-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 9999px; background: var(--s1); box-shadow: 0 0 0 3px var(--background), 0 2px 6px rgb(16 24 40 / 0.35); cursor: pointer; }
+
 /* Hub markers on the network map (HTML markers: no font server needed). */
 .pb-hub {
     position: relative;

@@ -159,6 +159,41 @@ export interface Disruption {
   delay_h: number | null
 }
 
+export interface ShiftEvent {
+  t: number
+  shipment_id: string
+  event: "booked" | "rebooked" | "broke"
+  mode?: Mode
+  from_hub?: string
+  to_hub?: string
+  route?: string[]
+  attempt?: number
+  cost_inr?: number
+  hub?: string | null
+  reason?: string
+  planned_delivery_h?: number | null
+}
+
+export interface ShiftRun {
+  label: string
+  kpis: { stranded: number; on_time: number; late: number; failed: number; unrecovered: number; on_time_rate: number
+    bookings: number; rebookings: number; broken_bookings: number; unnecessary: number; cost_inr: number
+    realized_penalty_inr: number; weighted_late_h: number }
+  timeline: { t: number; flagged: number; open: number; booked: number; holding: number; spent_inr: number }[]
+  events: ShiftEvent[]
+}
+
+export interface ShiftReplay {
+  config: { seed: number; capacity_tightness: number; shift_h: number; n_shipments: number; start_h: number; end_h: number
+    start_at: string; retry_grace_h: number }
+  network: NetworkGeo
+  disruptions: Disruption[]
+  strandings: number[]
+  policies: Record<string, ShiftRun>
+  /** The committed shift benchmark, Piggyback vs next service, for context. */
+  published: { shifts: number; penalty_pct: number; half_width: number; significant: boolean; wins: number } | null
+}
+
 export interface NetworkGeo {
   type: "FeatureCollection"
   features: {
@@ -307,4 +342,5 @@ export const api = {
       `${sc(sid)}/evaluation/detections${q({ grace_h })}`,
     ),
   benchmark: () => request<BenchmarkSummary>("/benchmark"),
+  shiftReplay: (seed: number, tightness: number) => request<ShiftReplay>(`/lab/shift${q({ seed, tightness })}`),
 }

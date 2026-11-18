@@ -339,7 +339,7 @@ def build_shipments(rng: random.Random, cfg: ScenarioConfig, hubs: list[Hub], ro
         o, d = rng.choices(hubs, weights=weights, k=2)
         if o.hub_id == d.hub_id:
             continue
-        created = _r(rng.uniform(0.0, cfg.now_h - 1.0))
+        created = _r(rng.uniform(0.0, cfg.end_h - 1.0))
         path = router.route(o.hub_id, d.hub_id, created + INDUCTION_H)
         if path is None:
             continue
@@ -411,7 +411,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
                      paths: dict[str, list[TripLeg]], legs: list[TripLeg], hubs: list[Hub],
                      trip_delays: list[TripDelay],
                      ) -> tuple[dict[str, list[RawScan]], list[TruthRecord]]:
-    now = cfg.now_h
+    now = cfg.end_h  # a shift strands parcels throughout, up to its end
     delay = {d.trip_id: d for d in trip_delays}
     legs_from_hub: dict[str, list[TripLeg]] = {}
     for l in legs:
@@ -472,7 +472,7 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
         if sid in stranded:
             continue
         for k, sc in enumerate(scans):
-            if misses_by_now(scans, k) and now - 14.0 <= sc[0] <= now - 3.0:
+            if misses_by_now(scans, k) and cfg.now_h - 14.0 <= sc[0] <= now - 3.0:
                 transfers.append((sc[0], sc[1]))
     transfers.sort()
     used_hubs: set[str] = set()
@@ -501,16 +501,21 @@ def apply_strandings(rng: random.Random, cfg: ScenarioConfig, shipments: list[Sh
 
 # --------------------------------------------------------------------------- disruptions
 
+# Disruptions become known this long before they start (all of a snapshot's are known at `now`).
+DISRUPTION_NOTICE_H = 8.0
+
 def build_disruptions(rng: random.Random, cfg: ScenarioConfig, hubs: list[Hub], lanes: list[Lane],
                       trips: list[Trip]) -> list[Disruption]:
     """Known events the recovery plan must route around. They start at or after `now`,
-    so they don't rewrite the scan history the operator has already seen."""
+    so they don't rewrite the scan history the operator has already seen. In a shift they
+    start any time in it (and up to 8 h after), and become known 8 h ahead (see
+    `DISRUPTION_NOTICE_H`)."""
     now = cfg.now_h
     out = []
     for n in range(1, cfg.n_disruptions + 1):
         kind = rng.choices((DISRUPTION_TRIP_BREAKDOWN, DISRUPTION_HUB_CLOSURE, DISRUPTION_LANE_DELAY),
                            weights=(0.4, 0.2, 0.4))[0]
-        start = _r(rng.uniform(now, now + 8.0))
+        start = _r(rng.uniform(now, cfg.end_h + DISRUPTION_NOTICE_H))
         did = f"D{n:02d}"
         if kind == DISRUPTION_TRIP_BREAKDOWN:
             # Breaks down mid-trip or before departure; the vehicle is out for the rest of the horizon.
@@ -538,6 +543,8 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
             raise ValueError(f"{name} must be in [0, 1]")
     if not 0.0 < cfg.now_h < cfg.horizon_h:
         raise ValueError("now_h must be inside the horizon")
+    if not 0.0 <= cfg.shift_h <= 48.0 or cfg.end_h >= cfg.horizon_h - 24.0:
+        raise ValueError("shift_h must be 0-48 h and end at least 24 h before the horizon")
     try:
         if datetime.fromisoformat(cfg.start_at).utcoffset() is None:
             raise ValueError
@@ -555,18 +562,18 @@ def generate_scenario(seed: int = 42, **overrides) -> Scenario:
     disruptions = build_disruptions(rng, cfg, hubs, lanes, trips)
 
     # Upload lag: most scans land within minutes, a few hours later. Only scans that
-    # have reached the system by `now` are visible.
+    # have reached the system by `now` are visible (by the shift's end, in shift mode).
     scans: list[ScanEvent] = []
     for s in shipments:
         for ts, hub, kind, leg_id, note in raw[s.shipment_id]:
-            if ts > cfg.now_h:
+            if ts > cfg.end_h:
                 continue
             if rng.random() < cfg.scan_lag_rate:
                 lag = rng.uniform(*SCAN_LAG_RANGE_H)
             else:
                 lag = rng.uniform(0.0, SCAN_LAG_NORMAL_H)
             recorded = _r(ts + lag)
-            if recorded <= cfg.now_h:
+            if recorded <= cfg.end_h:
                 scans.append(ScanEvent(f"E{len(scans) + 1:06d}", s.shipment_id, ts, recorded,
                                        hub, kind, leg_id, note))
 

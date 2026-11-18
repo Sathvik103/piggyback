@@ -4,25 +4,25 @@ The head-to-head benchmark re-run under conditions Piggyback was not designed ar
 
 | Condition | What changes | Piggyback on time | Δ on time vs next service | Δ penalty vs next service | Failed: Piggyback / next service | Δ penalty vs truck rule | Lower penalty than next service in |
 |---|---|---|---|---|---|---|---|
-| default | the benchmark's normal world | 69.2 ± 3.0% | **4.1 ± 2.1** pp | **-23.2 ± 8.6**% | 1.9% / 9.4% | **-43.2 ± 5.8**% | 19/20 |
-| mid trip delays | delays start at a later leg, so early scans look on time | 67.7 ± 2.4% | 1.7 ± 2.6 pp | **-17.0 ± 10.5**% | 1.9% / 8.2% | **-42.1 ± 7.5**% | 16/20 |
-| silent cancellations | 3% of trips never run, and nobody announces it | 58.6 ± 3.9% | **5.3 ± 2.3** pp | **-19.6 ± 6.2**% | 7.2% / 15.5% | **-32.5 ± 6.1**% | 20/20 |
-| scarce peaks | spare room is scarce on busy corridors and evening departures | 65.3 ± 2.7% | **6.3 ± 1.9** pp | **-25.3 ± 7.6**% | 2.1% / 10.9% | **-43.9 ± 4.7**% | 19/20 |
-| noisy scans | 3× as many scans upload 1–6 h late | 69.1 ± 3.0% | **4.2 ± 2.2** pp | **-22.9 ± 8.8**% | 1.9% / 9.3% | **-45.4 ± 5.5**% | 17/20 |
-| heavy delays | twice as many trips run late | 68.6 ± 2.6% | **7.4 ± 2.3** pp | **-37.3 ± 7.7**% | 3.2% / 15.3% | **-48.5 ± 5.1**% | 20/20 |
+| default | the benchmark's normal world | 70.4 ± 2.9% | **5.3 ± 1.9** pp | **-27.3 ± 6.1**% | 2.8% / 9.4% | **-45.9 ± 4.5**% | 20/20 |
+| mid trip delays | delays start at a later leg, so early scans look on time | 70.4 ± 2.2% | **4.4 ± 2.6** pp | **-25.6 ± 8.6**% | 2.3% / 8.2% | **-48.0 ± 6.5**% | 19/20 |
+| silent cancellations | 3% of trips never run, and nobody announces it | 59.2 ± 4.5% | **5.8 ± 2.1** pp | **-20.8 ± 4.9**% | 8.3% / 15.5% | **-33.3 ± 5.7**% | 20/20 |
+| scarce peaks | spare room is scarce on busy corridors and evening departures | 66.7 ± 2.5% | **7.7 ± 1.6** pp | **-28.5 ± 5.8**% | 3.2% / 10.9% | **-46.0 ± 4.5**% | 20/20 |
+| noisy scans | 3× as many scans upload 1–6 h late | 70.3 ± 2.8% | **5.5 ± 1.9** pp | **-27.9 ± 6.0**% | 2.8% / 9.3% | **-48.5 ± 4.3**% | 20/20 |
+| heavy delays | twice as many trips run late | 69.9 ± 2.7% | **8.7 ± 2.0** pp | **-39.1 ± 6.9**% | 4.5% / 15.3% | **-49.9 ± 4.7**% | 20/20 |
 
 ## Where the gain comes from, per condition
 
 Δ realized penalty of Piggyback vs each ablation (negative = that ingredient helps).
 
-| Condition | − optimizer (greedy) | − transfer buffer | − delay awareness | + proactive |
-|---|---|---|---|---|
-| default | **-3.7 ± 2.3%** | -2.5 ± 6.5% | **-16.8 ± 8.1%** | 1.0 ± 1.0% |
-| mid trip delays | -0.5 ± 1.2% | 3.4 ± 7.8% | **-11.3 ± 9.9%** | 0.3 ± 1.3% |
-| silent cancellations | **-5.0 ± 2.9%** | -3.4 ± 3.8% | **-14.4 ± 6.2%** | 0.0 ± 1.1% |
-| scarce peaks | **-8.3 ± 4.5%** | **-10.1 ± 5.4%** | **-23.0 ± 5.9%** | -3.1 ± 4.3% |
-| noisy scans | **-3.7 ± 2.3%** | -2.5 ± 6.4% | **-16.3 ± 8.1%** | 1.0 ± 1.0% |
-| heavy delays | **-5.0 ± 3.3%** | **-13.5 ± 6.0%** | **-29.1 ± 8.1%** | -5.3 ± 6.4% |
+| Condition | − optimizer (greedy) | − risk pricing | − calibration | − delay awareness | + proactive |
+|---|---|---|---|---|---|
+| default | **-3.3 ± 2.1%** | -3.5 ± 4.9% | 0.2 ± 0.6% | **-21.1 ± 5.3%** | **5.0 ± 3.6%** |
+| mid trip delays | **-2.3 ± 1.4%** | **-9.5 ± 4.1%** | -0.8 ± 1.4% | **-20.5 ± 7.8%** | 5.0 ± 9.1% |
+| silent cancellations | **-4.2 ± 1.8%** | -0.8 ± 3.6% | 1.2 ± 2.2% | **-15.5 ± 5.7%** | 1.5 ± 2.4% |
+| scarce peaks | **-9.1 ± 4.4%** | **-3.4 ± 3.1%** | -0.4 ± 0.9% | **-25.9 ± 5.0%** | -2.4 ± 4.2% |
+| noisy scans | **-3.7 ± 2.3%** | **-4.6 ± 4.5%** | -0.2 ± 0.9% | **-21.5 ± 5.2%** | **4.9 ± 3.4%** |
+| heavy delays | **-4.3 ± 2.4%** | -1.7 ± 5.2% | 0.2 ± 0.8% | **-31.0 ± 7.2%** | -3.8 ± 6.4% |
 
 ## All policies, per condition
 
@@ -31,75 +31,81 @@ The head-to-head benchmark re-run under conditions Piggyback was not designed ar
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 93.5 ± 1.0 | 0.00 ± 0.00 | 59.41 ± 5.94 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 65.1 ± 4.0 | 9.4 ± 2.5 | 3.6 ± 1.9 | 18.9 ± 3.2 | 0.53 ± 0.04 | 12.47 ± 2.29 | 0.48 ± 0.15 |
-| Next service + truck for late EXPRESS | 73.3 ± 3.5 | 8.6 ± 2.3 | 3.4 ± 1.8 | 13.8 ± 2.6 | 7.49 ± 1.17 | 16.29 ± 2.33 | 0.48 ± 0.15 |
-| **Piggyback (delay-aware, CP-SAT)** | 69.2 ± 3.0 | 1.9 ± 1.2 | 4.7 ± 1.8 | 13.0 ± 1.9 | 0.96 ± 0.28 | 9.14 ± 1.47 | 1.60 ± 1.17 |
-| − optimizer (greedy) | 68.5 ± 3.4 | 1.8 ± 1.1 | 5.0 ± 2.0 | 13.6 ± 2.1 | 1.05 ± 0.36 | 9.58 ± 1.68 | 0.76 ± 0.24 |
-| − transfer buffer | 69.5 ± 2.9 | 4.3 ± 1.5 | 3.8 ± 1.8 | 13.7 ± 2.1 | 0.89 ± 0.25 | 9.58 ± 1.78 | 1.61 ± 1.22 |
-| − delay awareness (published timetable) | 67.6 ± 2.9 | 8.1 ± 2.1 | 3.5 ± 1.7 | 16.6 ± 2.5 | 0.83 ± 0.21 | 11.31 ± 1.90 | 2.28 ± 1.56 |
-| + proactive (rebooks AT_RISK early) | 69.5 ± 3.1 | 1.9 ± 1.2 | 4.7 ± 1.8 | 12.9 ± 1.9 | 0.95 ± 0.26 | 9.07 ± 1.49 | 2.69 ± 1.52 |
+| Next service, FCFS (TMS auto-rebook) | 65.1 ± 4.0 | 9.4 ± 2.5 | 3.6 ± 1.9 | 18.9 ± 3.2 | 0.53 ± 0.04 | 12.47 ± 2.29 | 0.41 ± 0.12 |
+| Next service + truck for late EXPRESS | 73.3 ± 3.5 | 8.6 ± 2.3 | 3.4 ± 1.8 | 13.8 ± 2.6 | 7.49 ± 1.17 | 16.29 ± 2.33 | 0.43 ± 0.14 |
+| **Piggyback (risk-aware, CP-SAT)** | 70.4 ± 2.9 | 2.8 ± 1.2 | 3.8 ± 1.8 | 12.7 ± 2.0 | 0.83 ± 0.22 | 8.81 ± 1.52 | 2.39 ± 1.33 |
+| − optimizer (greedy) | 69.9 ± 3.2 | 2.8 ± 1.2 | 4.1 ± 1.9 | 13.1 ± 2.1 | 0.94 ± 0.31 | 9.19 ± 1.70 | 1.62 ± 0.48 |
+| − risk pricing (fixed 1.5 h buffer) | 69.2 ± 3.0 | 1.9 ± 1.2 | 4.7 ± 1.8 | 13.0 ± 1.9 | 0.96 ± 0.28 | 9.14 ± 1.47 | 1.67 ± 1.14 |
+| − stranding calibration | 70.6 ± 2.8 | 2.8 ± 1.2 | 3.8 ± 1.7 | 12.5 ± 2.0 | 0.90 ± 0.24 | 8.80 ± 1.53 | 4.97 ± 1.31 |
+| − delay awareness (published timetable) | 67.6 ± 2.9 | 8.1 ± 2.1 | 3.5 ± 1.7 | 16.6 ± 2.5 | 0.83 ± 0.21 | 11.31 ± 1.90 | 2.42 ± 1.50 |
+| + proactive (rebooks AT_RISK early) | 71.3 ± 2.7 | 2.3 ± 0.8 | 3.7 ± 1.8 | 12.0 ± 1.8 | 0.81 ± 0.19 | 8.36 ± 1.38 | 4.73 ± 1.91 |
 
 ### mid trip delays
 
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 94.0 ± 1.0 | 0.00 ± 0.00 | 47.32 ± 5.67 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 66.0 ± 3.8 | 8.2 ± 2.2 | 4.4 ± 1.9 | 18.4 ± 3.2 | 0.46 ± 0.06 | 9.39 ± 1.29 | 0.65 ± 0.05 |
-| Next service + truck for late EXPRESS | 74.7 ± 3.6 | 7.1 ± 2.0 | 4.1 ± 1.8 | 12.9 ± 2.7 | 6.94 ± 0.74 | 13.19 ± 1.30 | 0.69 ± 0.06 |
-| **Piggyback (delay-aware, CP-SAT)** | 67.7 ± 2.4 | 1.9 ± 1.1 | 5.0 ± 1.9 | 13.8 ± 2.3 | 0.83 ± 0.16 | 7.54 ± 1.07 | 1.91 ± 1.08 |
-| − optimizer (greedy) | 67.5 ± 2.4 | 1.7 ± 1.1 | 5.1 ± 2.0 | 13.8 ± 2.3 | 0.87 ± 0.17 | 7.59 ± 1.09 | 1.09 ± 0.09 |
-| − transfer buffer | 69.4 ± 2.4 | 3.5 ± 1.4 | 4.2 ± 1.8 | 13.5 ± 2.1 | 0.76 ± 0.17 | 7.50 ± 1.18 | 1.50 ± 0.20 |
-| − delay awareness (published timetable) | 67.6 ± 3.6 | 7.6 ± 2.5 | 4.1 ± 1.8 | 16.8 ± 3.4 | 0.68 ± 0.13 | 8.79 ± 1.33 | 1.81 ± 0.83 |
-| + proactive (rebooks AT_RISK early) | 67.8 ± 2.5 | 1.9 ± 1.1 | 5.1 ± 1.9 | 13.7 ± 2.3 | 0.87 ± 0.19 | 7.54 ± 1.08 | 2.54 ± 1.54 |
+| Next service, FCFS (TMS auto-rebook) | 66.0 ± 3.8 | 8.2 ± 2.2 | 4.4 ± 1.9 | 18.4 ± 3.2 | 0.46 ± 0.06 | 9.39 ± 1.29 | 0.62 ± 0.07 |
+| Next service + truck for late EXPRESS | 74.7 ± 3.6 | 7.1 ± 2.0 | 4.1 ± 1.8 | 12.9 ± 2.7 | 6.94 ± 0.74 | 13.19 ± 1.30 | 0.62 ± 0.06 |
+| **Piggyback (risk-aware, CP-SAT)** | 70.4 ± 2.2 | 2.3 ± 1.1 | 4.1 ± 1.8 | 12.5 ± 2.1 | 0.68 ± 0.13 | 6.83 ± 1.01 | 2.46 ± 0.21 |
+| − optimizer (greedy) | 69.7 ± 2.3 | 2.2 ± 1.0 | 4.4 ± 1.8 | 12.9 ± 2.2 | 0.68 ± 0.13 | 7.01 ± 1.07 | 2.12 ± 0.19 |
+| − risk pricing (fixed 1.5 h buffer) | 67.7 ± 2.4 | 1.9 ± 1.1 | 5.0 ± 1.9 | 13.8 ± 2.3 | 0.83 ± 0.16 | 7.54 ± 1.07 | 1.80 ± 1.07 |
+| − stranding calibration | 70.3 ± 2.3 | 2.3 ± 1.1 | 4.2 ± 1.8 | 12.6 ± 2.1 | 0.74 ± 0.14 | 6.89 ± 1.01 | 4.63 ± 0.37 |
+| − delay awareness (published timetable) | 67.6 ± 3.6 | 7.6 ± 2.5 | 4.1 ± 1.8 | 16.8 ± 3.4 | 0.68 ± 0.13 | 8.79 ± 1.33 | 1.75 ± 0.78 |
+| + proactive (rebooks AT_RISK early) | 70.9 ± 2.2 | 1.8 ± 0.7 | 4.3 ± 1.8 | 12.1 ± 2.0 | 0.65 ± 0.09 | 6.53 ± 0.88 | 3.78 ± 1.60 |
 
 ### silent cancellations
 
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 93.5 ± 1.0 | 0.00 ± 0.00 | 78.82 ± 7.99 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 53.3 ± 4.6 | 15.5 ± 3.9 | 8.9 ± 3.7 | 29.8 ± 4.3 | 0.68 ± 0.06 | 26.39 ± 5.35 | 1.07 ± 0.12 |
-| Next service + truck for late EXPRESS | 62.6 ± 4.2 | 14.1 ± 3.6 | 8.1 ± 3.6 | 23.0 ± 3.6 | 10.81 ± 1.64 | 30.72 ± 5.17 | 1.07 ± 0.13 |
-| **Piggyback (delay-aware, CP-SAT)** | 58.6 ± 3.9 | 7.2 ± 2.9 | 9.5 ± 3.6 | 22.4 ± 3.4 | 1.72 ± 0.72 | 20.93 ± 4.07 | 6.80 ± 2.52 |
-| − optimizer (greedy) | 57.7 ± 4.0 | 7.3 ± 3.1 | 10.3 ± 3.7 | 23.4 ± 3.5 | 2.06 ± 0.98 | 22.17 ± 4.47 | 1.79 ± 0.27 |
-| − transfer buffer | 58.9 ± 3.8 | 10.0 ± 2.8 | 8.8 ± 3.6 | 23.4 ± 3.3 | 1.58 ± 0.73 | 21.70 ± 4.26 | 8.63 ± 2.38 |
-| − delay awareness (published timetable) | 56.4 ± 3.7 | 14.6 ± 3.4 | 8.6 ± 3.6 | 26.9 ± 3.4 | 1.40 ± 0.65 | 24.46 ± 4.61 | 8.58 ± 2.37 |
-| + proactive (rebooks AT_RISK early) | 58.9 ± 3.8 | 7.4 ± 2.9 | 9.6 ± 3.6 | 22.4 ± 3.4 | 1.68 ± 0.67 | 20.93 ± 4.09 | 7.80 ± 2.36 |
+| Next service, FCFS (TMS auto-rebook) | 53.3 ± 4.6 | 15.5 ± 3.9 | 8.9 ± 3.7 | 29.8 ± 4.3 | 0.68 ± 0.06 | 26.39 ± 5.35 | 0.98 ± 0.12 |
+| Next service + truck for late EXPRESS | 62.6 ± 4.2 | 14.1 ± 3.6 | 8.1 ± 3.6 | 23.0 ± 3.6 | 10.81 ± 1.64 | 30.72 ± 5.17 | 1.00 ± 0.13 |
+| **Piggyback (risk-aware, CP-SAT)** | 59.2 ± 4.5 | 8.3 ± 2.6 | 9.4 ± 3.8 | 23.1 ± 3.9 | 1.07 ± 0.22 | 20.97 ± 4.43 | 9.35 ± 2.59 |
+| − optimizer (greedy) | 58.5 ± 4.5 | 8.5 ± 2.9 | 10.0 ± 4.0 | 24.1 ± 4.0 | 1.18 ± 0.31 | 21.96 ± 4.67 | 3.35 ± 0.41 |
+| − risk pricing (fixed 1.5 h buffer) | 58.6 ± 3.9 | 7.3 ± 2.9 | 9.6 ± 3.6 | 22.5 ± 3.4 | 1.66 ± 0.68 | 20.95 ± 4.08 | 6.70 ± 2.51 |
+| − stranding calibration | 60.1 ± 3.8 | 8.5 ± 2.5 | 8.6 ± 3.5 | 22.0 ± 3.2 | 1.60 ± 0.71 | 20.55 ± 4.10 | 12.97 ± 2.78 |
+| − delay awareness (published timetable) | 56.4 ± 3.8 | 14.7 ± 3.4 | 8.6 ± 3.6 | 26.9 ± 3.5 | 1.39 ± 0.63 | 24.51 ± 4.63 | 8.41 ± 2.36 |
+| + proactive (rebooks AT_RISK early) | 59.8 ± 4.4 | 8.2 ± 2.4 | 9.4 ± 3.9 | 22.7 ± 3.8 | 1.02 ± 0.20 | 20.68 ± 4.42 | 11.13 ± 2.34 |
 
 ### scarce peaks
 
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 94.4 ± 1.0 | 0.00 ± 0.00 | 57.99 ± 5.01 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 59.0 ± 3.5 | 10.9 ± 3.0 | 4.6 ± 2.1 | 23.1 ± 3.4 | 0.54 ± 0.05 | 14.79 ± 2.57 | 0.87 ± 0.10 |
-| Next service + truck for late EXPRESS | 69.6 ± 3.1 | 9.5 ± 2.7 | 4.0 ± 2.0 | 15.5 ± 2.7 | 9.28 ± 1.12 | 18.92 ± 2.28 | 0.92 ± 0.11 |
-| **Piggyback (delay-aware, CP-SAT)** | 65.3 ± 2.7 | 2.1 ± 0.9 | 6.4 ± 2.4 | 15.0 ± 1.9 | 1.49 ± 0.52 | 10.73 ± 1.79 | 5.94 ± 2.22 |
-| − optimizer (greedy) | 63.5 ± 3.5 | 1.9 ± 0.9 | 7.4 ± 2.9 | 16.5 ± 2.6 | 1.72 ± 0.53 | 11.95 ± 2.30 | 1.55 ± 0.19 |
-| − transfer buffer | 65.0 ± 2.5 | 5.9 ± 1.5 | 5.9 ± 2.5 | 17.0 ± 2.1 | 1.54 ± 0.54 | 11.93 ± 1.85 | 7.37 ± 2.40 |
-| − delay awareness (published timetable) | 62.0 ± 2.7 | 10.8 ± 2.6 | 5.3 ± 2.3 | 20.7 ± 2.6 | 1.31 ± 0.50 | 14.01 ± 2.07 | 7.09 ± 2.42 |
-| + proactive (rebooks AT_RISK early) | 64.8 ± 2.6 | 2.8 ± 1.4 | 6.6 ± 2.6 | 15.6 ± 2.0 | 1.50 ± 0.50 | 11.16 ± 1.86 | 7.32 ± 2.19 |
+| Next service, FCFS (TMS auto-rebook) | 59.0 ± 3.5 | 10.9 ± 3.0 | 4.6 ± 2.1 | 23.1 ± 3.4 | 0.54 ± 0.05 | 14.79 ± 2.57 | 0.86 ± 0.12 |
+| Next service + truck for late EXPRESS | 69.6 ± 3.1 | 9.5 ± 2.7 | 4.0 ± 2.0 | 15.5 ± 2.7 | 9.28 ± 1.12 | 18.92 ± 2.28 | 0.83 ± 0.10 |
+| **Piggyback (risk-aware, CP-SAT)** | 66.7 ± 2.5 | 3.2 ± 1.1 | 5.5 ± 2.2 | 14.6 ± 2.0 | 1.35 ± 0.50 | 10.37 ± 1.81 | 7.86 ± 2.38 |
+| − optimizer (greedy) | 64.9 ± 3.3 | 3.1 ± 1.1 | 6.7 ± 2.8 | 16.4 ± 2.6 | 1.49 ± 0.51 | 11.67 ± 2.33 | 2.84 ± 0.26 |
+| − risk pricing (fixed 1.5 h buffer) | 65.3 ± 2.7 | 2.1 ± 0.9 | 6.4 ± 2.4 | 15.0 ± 1.9 | 1.50 ± 0.52 | 10.72 ± 1.78 | 5.61 ± 2.21 |
+| − stranding calibration | 66.6 ± 2.6 | 3.2 ± 1.1 | 5.5 ± 2.4 | 14.6 ± 2.0 | 1.41 ± 0.51 | 10.42 ± 1.84 | 10.90 ± 2.59 |
+| − delay awareness (published timetable) | 62.1 ± 2.6 | 10.7 ± 2.6 | 5.4 ± 2.3 | 20.6 ± 2.6 | 1.30 ± 0.50 | 13.97 ± 2.05 | 6.80 ± 2.44 |
+| + proactive (rebooks AT_RISK early) | 66.2 ± 2.6 | 3.9 ± 1.4 | 5.7 ± 2.4 | 15.3 ± 2.1 | 1.24 ± 0.42 | 10.68 ± 1.79 | 9.57 ± 2.27 |
 
 ### noisy scans
 
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 93.4 ± 1.0 | 0.00 ± 0.00 | 59.20 ± 5.87 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 64.8 ± 4.0 | 9.3 ± 2.5 | 3.8 ± 2.0 | 19.1 ± 3.2 | 0.59 ± 0.04 | 12.61 ± 2.31 | 0.89 ± 0.12 |
-| Next service + truck for late EXPRESS | 73.2 ± 3.5 | 8.5 ± 2.3 | 3.6 ± 1.9 | 13.9 ± 2.6 | 8.28 ± 1.13 | 17.10 ± 2.31 | 0.88 ± 0.10 |
-| **Piggyback (delay-aware, CP-SAT)** | 69.1 ± 3.0 | 1.9 ± 1.2 | 4.8 ± 1.8 | 13.1 ± 1.9 | 1.07 ± 0.29 | 9.29 ± 1.49 | 3.14 ± 1.51 |
-| − optimizer (greedy) | 68.3 ± 3.4 | 1.8 ± 1.1 | 5.0 ± 1.9 | 13.6 ± 2.1 | 1.20 ± 0.38 | 9.74 ± 1.70 | 1.38 ± 0.13 |
-| − transfer buffer | 69.4 ± 3.0 | 4.3 ± 1.5 | 3.9 ± 1.7 | 13.8 ± 2.1 | 0.99 ± 0.25 | 9.71 ± 1.77 | 3.05 ± 1.52 |
-| − delay awareness (published timetable) | 67.5 ± 3.0 | 8.1 ± 2.1 | 3.7 ± 1.7 | 16.6 ± 2.5 | 0.93 ± 0.21 | 11.42 ± 1.91 | 3.33 ± 1.74 |
-| + proactive (rebooks AT_RISK early) | 69.4 ± 3.0 | 1.9 ± 1.2 | 4.9 ± 1.8 | 13.0 ± 1.9 | 1.06 ± 0.26 | 9.21 ± 1.50 | 3.73 ± 1.74 |
+| Next service, FCFS (TMS auto-rebook) | 64.8 ± 4.0 | 9.3 ± 2.5 | 3.8 ± 2.0 | 19.1 ± 3.2 | 0.59 ± 0.04 | 12.61 ± 2.31 | 0.78 ± 0.09 |
+| Next service + truck for late EXPRESS | 73.2 ± 3.5 | 8.5 ± 2.3 | 3.6 ± 1.9 | 13.9 ± 2.6 | 8.28 ± 1.13 | 17.10 ± 2.31 | 0.77 ± 0.09 |
+| **Piggyback (risk-aware, CP-SAT)** | 70.3 ± 2.8 | 2.8 ± 1.2 | 3.8 ± 1.7 | 12.7 ± 1.9 | 0.90 ± 0.22 | 8.85 ± 1.50 | 3.82 ± 1.15 |
+| − optimizer (greedy) | 69.7 ± 3.3 | 2.8 ± 1.2 | 4.2 ± 1.9 | 13.1 ± 2.1 | 1.02 ± 0.31 | 9.27 ± 1.70 | 2.60 ± 0.28 |
+| − risk pricing (fixed 1.5 h buffer) | 69.1 ± 3.0 | 1.9 ± 1.2 | 4.8 ± 1.8 | 13.1 ± 1.9 | 1.07 ± 0.29 | 9.29 ± 1.49 | 2.80 ± 1.54 |
+| − stranding calibration | 70.4 ± 2.8 | 2.8 ± 1.2 | 3.9 ± 1.7 | 12.6 ± 2.0 | 1.00 ± 0.24 | 8.89 ± 1.54 | 7.04 ± 1.94 |
+| − delay awareness (published timetable) | 67.4 ± 3.0 | 8.1 ± 2.2 | 3.7 ± 1.7 | 16.7 ± 2.5 | 0.93 ± 0.21 | 11.43 ± 1.90 | 3.12 ± 1.80 |
+| + proactive (rebooks AT_RISK early) | 71.3 ± 2.7 | 2.3 ± 0.8 | 3.7 ± 1.7 | 12.0 ± 1.7 | 0.88 ± 0.19 | 8.41 ± 1.37 | 5.33 ± 1.85 |
 
 ### heavy delays
 
 | Policy | On time % | Failed % | Unrecovered % | Weighted late h / parcel | Cost (₹ lakh) | Realized penalty (₹ lakh) | Plan time (s) |
 |---|---|---|---|---|---|---|---|
 | Do nothing | 0.0 ± 0.0 | 0.0 ± 0.0 | 100.0 ± 0.0 | 93.3 ± 1.2 | 0.00 ± 0.00 | 69.39 ± 8.31 | 0.00 ± 0.00 |
-| Next service, FCFS (TMS auto-rebook) | 61.2 ± 3.2 | 15.3 ± 3.0 | 3.0 ± 1.4 | 23.0 ± 2.7 | 0.64 ± 0.08 | 17.32 ± 2.21 | 0.89 ± 0.15 |
-| Next service + truck for late EXPRESS | 69.3 ± 2.5 | 13.5 ± 2.7 | 2.5 ± 1.2 | 16.8 ± 2.0 | 8.36 ± 1.15 | 20.62 ± 2.21 | 0.85 ± 0.15 |
-| **Piggyback (delay-aware, CP-SAT)** | 68.6 ± 2.6 | 3.2 ± 1.5 | 3.4 ± 1.3 | 12.8 ± 1.9 | 1.34 ± 0.31 | 10.44 ± 1.21 | 5.97 ± 2.46 |
-| − optimizer (greedy) | 67.5 ± 3.0 | 3.2 ± 1.5 | 3.8 ± 1.3 | 13.5 ± 1.9 | 1.44 ± 0.33 | 11.12 ± 1.52 | 1.46 ± 0.31 |
-| − transfer buffer | 68.0 ± 2.7 | 7.3 ± 1.5 | 2.7 ± 1.2 | 15.2 ± 1.9 | 1.22 ± 0.21 | 12.24 ± 1.61 | 5.37 ± 2.47 |
-| − delay awareness (published timetable) | 65.1 ± 3.1 | 12.7 ± 2.8 | 2.7 ± 1.2 | 19.6 ± 2.6 | 1.07 ± 0.17 | 15.25 ± 2.06 | 4.79 ± 2.31 |
-| + proactive (rebooks AT_RISK early) | 68.0 ± 3.0 | 4.4 ± 2.4 | 3.6 ± 1.2 | 13.9 ± 2.6 | 1.42 ± 0.32 | 11.33 ± 1.73 | 6.40 ± 2.46 |
+| Next service, FCFS (TMS auto-rebook) | 61.2 ± 3.2 | 15.3 ± 3.0 | 3.0 ± 1.4 | 23.0 ± 2.7 | 0.64 ± 0.08 | 17.32 ± 2.21 | 0.90 ± 0.09 |
+| Next service + truck for late EXPRESS | 69.3 ± 2.5 | 13.5 ± 2.7 | 2.5 ± 1.2 | 16.8 ± 2.0 | 8.36 ± 1.15 | 20.62 ± 2.21 | 0.89 ± 0.09 |
+| **Piggyback (risk-aware, CP-SAT)** | 69.9 ± 2.7 | 4.5 ± 1.4 | 2.7 ± 1.1 | 12.8 ± 2.0 | 1.11 ± 0.20 | 10.20 ± 1.21 | 7.38 ± 2.53 |
+| − optimizer (greedy) | 68.9 ± 3.1 | 4.5 ± 1.5 | 3.0 ± 1.2 | 13.5 ± 2.1 | 1.12 ± 0.21 | 10.76 ± 1.46 | 3.02 ± 0.37 |
+| − risk pricing (fixed 1.5 h buffer) | 68.7 ± 2.6 | 3.2 ± 1.4 | 3.4 ± 1.3 | 12.7 ± 1.9 | 1.34 ± 0.31 | 10.39 ± 1.18 | 6.03 ± 2.45 |
+| − stranding calibration | 70.1 ± 2.6 | 4.5 ± 1.4 | 2.7 ± 1.1 | 12.7 ± 2.0 | 1.19 ± 0.22 | 10.17 ± 1.20 | 10.34 ± 2.92 |
+| − delay awareness (published timetable) | 65.1 ± 3.0 | 12.6 ± 2.8 | 2.7 ± 1.2 | 19.5 ± 2.6 | 1.07 ± 0.17 | 15.19 ± 2.01 | 5.40 ± 2.37 |
+| + proactive (rebooks AT_RISK early) | 69.7 ± 2.7 | 5.3 ± 1.4 | 2.8 ± 1.0 | 13.6 ± 2.1 | 1.09 ± 0.20 | 10.82 ± 1.58 | 9.86 ± 2.62 |

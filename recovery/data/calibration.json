@@ -1,0 +1,46 @@
+{
+ "source": "first flags per parcel over 24 h shifts, validation seeds 101-110",
+ "by_kind": {
+  "HELD": 0.997,
+  "LOST_SCAN": 0.415,
+  "MISROUTE": 0.996,
+  "MISSED_CONNECTION": 0.954,
+  "MISSORT": 0.777,
+  "STALLED": 0.089
+ },
+ "by_bucket": {
+  "HELD|0.9": 0.996,
+  "HELD|1.0": 0.975,
+  "LOST_SCAN|0.5": 0.333,
+  "LOST_SCAN|0.8": 0.382,
+  "LOST_SCAN|0.9": 0.75,
+  "LOST_SCAN|1.0": 0.971,
+  "MISROUTE|0.9": 0.995,
+  "MISROUTE|1.0": 0.99,
+  "MISSED_CONNECTION|0.9": 0.943,
+  "MISSED_CONNECTION|1.0": 0.995,
+  "MISSORT|0.8": 0.77,
+  "MISSORT|0.9": 0.96,
+  "STALLED|0.6": 0.096,
+  "STALLED|0.7": 0.042
+ },
+ "counts": {
+  "HELD|0.9": 276,
+  "HELD|1.0": 38,
+  "LOST_SCAN|0.5": 10,
+  "LOST_SCAN|0.8": 692,
+  "LOST_SCAN|0.9": 14,
+  "LOST_SCAN|1.0": 32,
+  "MISROUTE|0.9": 181,
+  "MISROUTE|1.0": 94,
+  "MISSED_CONNECTION|0.9": 877,
+  "MISSED_CONNECTION|1.0": 207,
+  "MISSORT|0.8": 684,
+  "MISSORT|0.9": 23,
+  "STALLED|0.4": 6,
+  "STALLED|0.5": 8,
+  "STALLED|0.6": 688,
+  "STALLED|0.7": 46,
+  "STALLED|0.8": 5
+ }
+}

@@ -41,6 +41,7 @@ from simulator.models import ScenarioConfig
 from . import auth
 from .events import EventHub
 from .observability import Metrics, ObservabilityMiddleware, configure_access_log, metrics_allowed
+from .shift import ShiftReplays
 from .store import SCENARIO_ID, CapacityConflict, Conflict, Invalid, NotFound, RouteContext, ScenarioStore
 
 DEFAULT_GRACE_H = DetectorConfig().grace_h
@@ -344,6 +345,17 @@ def create_app(database_url: str = DEFAULT_URL, run_migrations: bool = True) -> 
         return s.repo.decisions(sid, in_force_only=not history)
 
     # ------------------------------------------------------------------ benchmark
+
+    replays = ShiftReplays()
+
+    @app.get("/lab/shift")
+    def shift_replay(seed: int = Query(1, ge=1, le=10_000), tightness: float = Query(0.6, ge=0.0, le=0.95),
+                     shift_h: float = Query(24.0, ge=4.0, le=48.0),
+                     n_shipments: int = Query(3000, ge=300, le=6000)):
+        """Lab: a whole shift worked hour by hour by risk-aware Piggyback and by next-service
+        rebooking, on a generated world (reads ground truth to know which bookings break).
+        Computed on first request (a few seconds), then cached."""
+        return replays.get(seed, tightness, shift_h, n_shipments)
 
     @app.get("/benchmark")
     def benchmark():

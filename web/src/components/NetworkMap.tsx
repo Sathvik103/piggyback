@@ -100,7 +100,10 @@ export function NetworkMap(props: NetworkMapProps) {
   clickRef.current = onHubClick
   const { resolvedTheme } = useTheme()
   const [loaded, setLoaded] = useState(false)
-  const [time, setTime] = useState(0)
+  // Flow animation time lives outside React state: re-rendering every frame would starve
+  // React Router's navigation transitions on busy maps (the replay page).
+  const time = useRef(0)
+  const layersAt = useRef<((t: number) => Layer[]) | null>(null)
 
   const hubs = useMemo(() => {
     const out: Record<string, { coord: Coord; name: string }> = {}
@@ -212,8 +215,15 @@ export function NetworkMap(props: NetworkMapProps) {
     if (!flowing || prefersReducedMotion()) return
     let raf = 0
     const t0 = performance.now()
+    let last = t0, slow = 0
     const tick = (now: number) => {
-      setTime(((now - t0) / 9) % LOOP) // one trip along a hop every ~9 s
+      // A device that can't draw the flow smoothly (software WebGL, a weak GPU) stops it rather
+      // than let it starve the page: after 5 slow frames in a row the traffic holds still.
+      slow = now - last > 120 ? slow + 1 : 0
+      last = now
+      if (slow >= 5) return
+      time.current = ((now - t0) / 9) % LOOP // one trip along a hop every ~9 s
+      if (overlay.current && layersAt.current) overlay.current.setProps({ layers: layersAt.current(time.current) })
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -254,13 +264,13 @@ export function NetworkMap(props: NetworkMapProps) {
     const dark = resolvedTheme === "dark"
     const s1 = rgba("--s1"), s2 = rgba("--s2")
     const common = { widthUnits: "pixels" as const, capRounded: true, jointRounded: true, getPath: (d: Path) => d.path, pickable: false }
-    const layers: Layer[] = [
+    const layers = (t: number): Layer[] => [
       new PathLayer<Path>({ ...common, id: "lanes", data: data.lanes, getColor: rgba("--map-lane", compact ? 0.8 : 1), getWidth: compact ? 1 : 1.25 }),
       // Plan traffic: a wide, faint underglow and a crisp line, both scaled by parcels.
       new PathLayer<Path>({ ...common, id: "hops-glow", data: data.hops, getColor: [s1[0], s1[1], s1[2], dark ? 50 : 34], getWidth: (d) => 4 + 10 * (d.n ?? 0) }),
       new PathLayer<Path>({ ...common, id: "hops", data: data.hops, getColor: [s1[0], s1[1], s1[2], 220], getWidth: (d) => 1.5 + 5 * (d.n ?? 0) }),
       new TripsLayer<Path>({
-        ...common, id: "flow", data: data.hops, getTimestamps: (d) => d.timestamps!, currentTime: time, trailLength: 180,
+        ...common, id: "flow", data: data.hops, getTimestamps: (d) => d.timestamps!, currentTime: t, trailLength: 180,
         getColor: dark ? [235, 242, 255, 230] : [255, 255, 255, 235], getWidth: (d) => 1 + 2.5 * (d.n ?? 0), fadeTrail: true,
       }),
       new PathLayer<Path>({ ...common, id: "dedicated", data: data.dedicated, getColor: [s2[0], s2[1], s2[2], 230], getWidth: 2, getDashArray: [4, 3], dashJustified: true, extensions: [DASH] } as never),
@@ -274,8 +284,9 @@ export function NetworkMap(props: NetworkMapProps) {
         updateTriggers: { getDashArray: recovery?.mode, getColor: [recovery?.mode, resolvedTheme] },
       } as never),
     ]
-    ov.setProps({ layers })
-  }, [loaded, data, time, resolvedTheme, recovery, compact])
+    layersAt.current = layers
+    ov.setProps({ layers: layers(time.current) })
+  }, [loaded, data, resolvedTheme, recovery, compact])
 
   // ---------------------------------------------------------------- hub markers (real buttons: keyboard + screen readers)
 

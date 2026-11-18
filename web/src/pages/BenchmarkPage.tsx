@@ -9,7 +9,8 @@ const INGREDIENTS: { key: string; label: string; what: string }[] = [
   { key: "piggyback_blind", label: "Delay-aware planning", what: "vs planning on the published timetable" },
   { key: "piggyback_greedy", label: "CP-SAT optimizer", what: "vs greedy, one parcel at a time" },
   { key: "piggyback_proactive", label: "Waiting until stranded", what: "vs rebooking at-risk parcels early" },
-  { key: "piggyback_no_buffer", label: "Transfer buffer", what: "vs no slack after unobserved trucks" },
+  { key: "piggyback_fixed_buffer", label: "Risk pricing", what: "vs a fixed 1.5 h buffer after unobserved trucks" },
+  { key: "piggyback_uncalibrated", label: "Stranding calibration", what: "vs treating every flag as certain" },
 ]
 
 export function BenchmarkPage() {

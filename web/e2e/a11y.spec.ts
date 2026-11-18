@@ -10,6 +10,7 @@ const PAGES = [
   { name: "plans", path: "/app/#/plans", ready: "Plans" },
   { name: "benchmark", path: "/app/#/benchmark", ready: "Benchmark" },
   { name: "lab", path: "/app/#/lab", ready: "Lab" },
+  { name: "replay", path: "/app/#/replay", ready: "End of shift" },
 ]
 
 for (const scheme of ["light", "dark"] as const) {
@@ -17,9 +18,10 @@ for (const scheme of ["light", "dark"] as const) {
     test.use({ colorScheme: scheme })
     for (const p of PAGES) {
       test(`${p.name} has no WCAG A/AA violations`, async ({ page, errors }) => {
+        test.slow(p.name === "replay")
         await page.goto(p.path)
         await expect(page.getByRole("main")).toBeVisible()
-        await expect(page.getByText(p.ready).first()).toBeVisible()
+        await expect(page.getByText(p.ready).first()).toBeVisible({ timeout: 60_000 }) // the replay simulates a shift on first visit
         await page.waitForLoadState("networkidle")
         const result = await new AxeBuilder({ page })
           .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])

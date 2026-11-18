@@ -77,6 +77,8 @@ export const useDecisions = (sid: string | null, history = false) =>
   useQuery({ queryKey: keys.decisions(sid ?? "", history), queryFn: () => api.decisions(sid!, history), enabled: on(sid) })
 
 export const useBenchmark = () => useQuery({ queryKey: keys.benchmark, queryFn: api.benchmark, staleTime: Infinity })
+export const useShiftReplay = (seed: number, tightness: number) =>
+  useQuery({ queryKey: ["shift-replay", seed, tightness], queryFn: () => api.shiftReplay(seed, tightness), staleTime: Infinity })
 
 /** Anything that depends on decisions in force or on free capacity. */
 export function invalidateOperational(qc: ReturnType<typeof useQueryClient>, sid: string) {

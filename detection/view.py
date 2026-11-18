@@ -38,8 +38,20 @@ class OperatorView:
 
     @classmethod
     def from_scenario(cls, sc: Scenario) -> OperatorView:
-        return cls(sc.now, sc.hubs, sc.lanes, sc.corridors, sc.trips, sc.legs,
-                   sc.shipments, sc.scans, sc.disruptions)
+        return cls.at(sc, sc.now)
+
+    @classmethod
+    def at(cls, sc: Scenario, t: float, notice_h: float = 8.0) -> OperatorView:
+        """What an operator sees at time `t`: shipments created by then, scans recorded
+        by then, and disruptions announced by then (`notice_h` before they start). For a
+        snapshot scenario at its own `now` this is everything it contains."""
+        if t >= sc.config.end_h:
+            ships, scans = sc.shipments, sc.scans
+        else:
+            ships = [s for s in sc.shipments if s.created_h <= t]
+            scans = [e for e in sc.scans if e.recorded_h <= t]
+        disruptions = [d for d in sc.disruptions if d.start_h - notice_h <= t]
+        return cls(t, sc.hubs, sc.lanes, sc.corridors, sc.trips, sc.legs, ships, scans, disruptions)
 
     @classmethod
     def from_csv_dir(cls, path: Path) -> OperatorView:

@@ -81,7 +81,7 @@ test("benchmark page shows the headline with its confidence interval", async ({ 
   await expect(page.getByText(/paired simulated scenarios/)).toBeVisible()
   await expect(page.getByText(/95% CI .*better in \d+ of \d+ scenarios/)).toBeVisible()
   await expect(page.getByRole("img", { name: /Penalty change versus next service/ })).toBeVisible()
-  await expect(page.getByRole("row", { name: /Piggyback \(delay-aware, CP-SAT\)/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /Piggyback \(risk-aware, CP-SAT\)/ })).toBeVisible()
   void errors
 })
 
@@ -91,5 +91,26 @@ test("lab rejects an invalid scenario name before calling the API", async ({ pag
   await form.getByPlaceholder("seed7_tight").fill("Bad Name!")
   await form.getByRole("button", { name: /Generate scenario/ }).click()
   await expect(form.getByRole("alert")).toContainText("lowercase letters")
+  void errors
+})
+
+test("shift replay plays a whole shift and compares both policies", async ({ page, errors }) => {
+  test.slow() // the first request simulates the shift
+  await page.goto("/app/#/replay")
+  const slider = page.getByRole("slider", { name: "Time in the shift" })
+  await expect(slider).toBeVisible({ timeout: 60_000 })
+  const now = page.getByRole("region", { name: "Both policies right now" })
+  const bookings = now.getByText("Bookings made").locator("xpath=following-sibling::span[1]")
+  const atStart = Number(await bookings.textContent())
+
+  await slider.fill(await slider.getAttribute("max") ?? "60") // jump to the end of the shift
+  await expect.poll(async () => Number(await bookings.textContent())).toBeGreaterThan(atStart)
+  await expect(page.getByRole("region", { name: "End of shift" })).toContainText(/Realized penalty/)
+  await expect(page.getByRole("region", { name: "Latest events" }).getByRole("listitem").first()).toBeVisible()
+
+  await page.getByRole("radio", { name: "Next service" }).click() // the map switches policy
+  await expect(page.getByRole("region", { name: "Latest events" })).toContainText("Next service")
+  await page.getByRole("button", { name: "Back to the start of the shift" }).click()
+  await expect(page.getByRole("region", { name: "Latest events" })).toContainText(/Nothing yet|booked/)
   void errors
 })

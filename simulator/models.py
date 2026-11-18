@@ -61,6 +61,16 @@ class ScenarioConfig:
     cancel_rate: float = 0.0      # share of trips that silently never run (not announced)
     capacity_correlation: float = 0.0  # 0 = spare capacity independent per leg;
                                        # 1 = scarce on busy corridors and evening departures
+    # Shift mode (benchmark/shift.py): > 0 generates a world that keeps running for this
+    # many hours after `now_h`. Strandings, new shipments and disruptions are spread over
+    # the shift, and scans are kept up to its end; a policy then looks at it hour by hour
+    # and only sees what was recorded by each hour. 0 = the classic single snapshot.
+    shift_h: float = 0.0
+
+    @property
+    def end_h(self) -> float:
+        """The last moment the generated world covers (`now_h` for a snapshot)."""
+        return self.now_h + self.shift_h
 
 
 @dataclass(frozen=True)

@@ -23,7 +23,7 @@ from detection import OperatorView, detect
 from recovery import replay
 from simulator import generate_scenario
 
-from .policies import POLICIES, reactive_followup
+from .policies import BY_NAME, POLICIES, reactive_followup
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 DEFAULT_SEEDS = range(1, 21)
@@ -55,9 +55,7 @@ def run_case(seed: int, tightness: float, anomaly: float, policies: tuple[str, .
     dets = detect(view)
     delays = {d.trip_id: d for d in sc.trip_delays}
     rows = []
-    for p in POLICIES:
-        if p.name not in policies:
-            continue
+    for p in [BY_NAME[n] for n in policies]:
         t0 = time.perf_counter()
         plan = p.run(view, dets)
         plan_s = time.perf_counter() - t0
@@ -114,7 +112,7 @@ def main(argv: list[str] | None = None) -> Path:
     order = {p.name: i for i, p in enumerate(POLICIES)}
     vorder = {v: i for i, v in enumerate(STRESS_VARIANTS)}
     rows.sort(key=lambda r: (vorder[r["variant"]], r["capacity_tightness"], r["anomaly_rate"], r["seed"],
-                             order[r["policy"]]))
+                             order.get(r["policy"], len(order))))
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "w", newline="", encoding="utf-8") as f:

@@ -44,3 +44,20 @@ test("benchmark", async ({ page, errors }) => {
   await page.screenshot({ path: `${OUT}/benchmark.png` })
   void errors
 })
+
+test("replay", async ({ page, errors }) => {
+  test.slow() // simulates a shift on first visit
+  await page.goto("/app/#/replay")
+  const slider = page.getByRole("slider", { name: "Time in the shift" })
+  await expect(slider).toBeVisible({ timeout: 90_000 })
+  await slider.evaluate((el: HTMLInputElement) => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+    set.call(el, String(Number(el.min) + (Number(el.max) - Number(el.min)) * 0.55))
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  await expect(page.locator("[data-map-ready]")).toBeAttached()
+  await page.waitForLoadState("networkidle") // the base map
+  await page.waitForTimeout(3000)
+  await page.screenshot({ path: `${OUT}/replay.png` })
+  void errors
+})

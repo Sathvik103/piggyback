@@ -1,4 +1,4 @@
-import { ChartColumn, FlaskConical, Inbox, ListChecks, LogOut, Map as MapIcon, Moon, RefreshCw, Sun } from "lucide-react"
+import { ChartColumn, FlaskConical, History, Inbox, ListChecks, LogOut, Map as MapIcon, Moon, RefreshCw, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { NavLink, Outlet, useLocation } from "react-router"
 import { toast } from "sonner"
@@ -20,6 +20,7 @@ const NAV = [
   { to: "/network", label: "Network", icon: MapIcon },
   { to: "/plans", label: "Plans", icon: ListChecks },
   { to: "/benchmark", label: "Benchmark", icon: ChartColumn },
+  { to: "/replay", label: "Replay", icon: History },
   { to: "/lab", label: "Lab", icon: FlaskConical },
 ]
 
@@ -80,7 +81,7 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 /** Phones: the same destinations as a tab bar along the bottom edge. */
 function BottomNav() {
   return (
-    <nav aria-label="Main" className="glass-bar grid shrink-0 grid-cols-5 border-t border-border/60 px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden">
+    <nav aria-label="Main" className="glass-bar grid shrink-0 grid-cols-6 border-t border-border/60 px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden">
       {NAV.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}

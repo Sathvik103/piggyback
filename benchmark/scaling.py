@@ -19,8 +19,9 @@ from pathlib import Path
 
 from detection import OperatorView, detect
 from detection.detector import KIND_AT_RISK
-from recovery import Network, generate_options, leg_capacity
+from recovery import leg_capacity
 from recovery.optimizer import solve_cpsat, solve_greedy
+from recovery.risk import plan_options
 from simulator import generate_scenario
 
 from .run import RESULTS_DIR, _parse_seeds
@@ -42,7 +43,7 @@ def measure(n: int, seed: int, tightness: float, time_limit_s: float) -> dict:
     det_s = time.perf_counter() - t
 
     t = time.perf_counter()
-    opts = generate_options(view, dets, network=Network(view))
+    opts = plan_options(view, dets)  # what the shipped planner prices: risk-aware, both networks
     opt_s = time.perf_counter() - t
 
     cap = leg_capacity(view)

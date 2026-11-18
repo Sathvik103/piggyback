@@ -19,6 +19,9 @@ from pathlib import Path
 
 from .policies import BY_NAME, POLICIES
 
+ABLATIONS = ("piggyback_greedy", "piggyback_fixed_buffer", "piggyback_uncalibrated", "piggyback_blind",
+             "piggyback_proactive")
+
 HERO = "piggyback"
 _T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
         12: 2.18, 15: 2.13, 20: 2.09, 25: 2.06, 30: 2.04}
@@ -286,12 +289,12 @@ def write_robustness(csv_path: Path, out: Path | None = None) -> Path:
             f"{mark(t['penalty_pct'])}% | {p['wins']}/{p['n']} |")
     lines += ["", "## Where the gain comes from, per condition", "",
               "Δ realized penalty of Piggyback vs each ablation (negative = that ingredient helps).", "",
-              "| Condition | − optimizer (greedy) | − transfer buffer | − delay awareness | + proactive |",
-              "|---|---|---|---|---|"]
+              "| Condition | − optimizer (greedy) | − risk pricing | − calibration | − delay awareness | + proactive |",
+              "|---|---|---|---|---|---|"]
     for v in variants:
         sub = [r for r in rows if r["variant"] == v]
         cells = []
-        for o in ("piggyback_greedy", "piggyback_no_buffer", "piggyback_blind", "piggyback_proactive"):
+        for o in ABLATIONS:
             pr = paired(sub, o)
             cells.append(("**" + _fmt(*pr["penalty_pct"]) + "%**") if _significant(*pr["penalty_pct"])
                          else _fmt(*pr["penalty_pct"]) + "%")
@@ -364,7 +367,7 @@ def benchmark_summary(results_dir: Path = RESULTS_DIR) -> dict:
                 "vs_next_service": _paired_json(sub, "next_service"),
                 "vs_express_truck": _paired_json(sub, "next_service_express_truck"),
                 "ablations": {o: _paired_json(sub, o) for o in
-                              ("piggyback_greedy", "piggyback_no_buffer", "piggyback_blind", "piggyback_proactive")
+                              ABLATIONS
                               if any(r["policy"] == o for r in sub)},
             })
     _summary_cache.update(key=key, value=out)

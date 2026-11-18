@@ -17,11 +17,15 @@ Baselines model what carriers commonly do today:
 
 Piggyback and its ablations each change one ingredient:
 
-- piggyback: delay- and disruption-aware network, CP-SAT over all stranded
-  parcels and options jointly, and it acts once a parcel is stranded (AT_RISK
-  parcels are watched, then rebooked if they really strand).
+- piggyback: delay- and disruption-aware network, options priced by expected
+  penalty (unknown truck delays learned from observed ones, flags weighted by
+  their calibrated chance of being real; recovery/risk.py), CP-SAT over all
+  stranded parcels and options jointly, and it acts once a parcel is stranded
+  (AT_RISK parcels are watched, then rebooked if they really strand).
 - piggyback_greedy: same options, greedy assignment instead of the optimizer.
-- piggyback_no_buffer: no extra slack after trips whose delay is still unknown.
+- piggyback_fixed_buffer: the previous default. Instead of pricing risk, demand a
+  fixed 1.5 h of slack after trips whose delay is still unknown.
+- piggyback_uncalibrated: risk pricing, but every flag treated as a certain stranding.
 - piggyback_proactive: also rebooks AT_RISK parcels right away. This was the
   original default; the benchmark showed it doesn't pay, so it became an
   ablation (see docs/DECISIONS.md).
@@ -39,6 +43,7 @@ from detection.view import OperatorView
 from recovery import Network, OptionsConfig, Plan, RecoveryOption, generate_options, leg_capacity
 from recovery.optimizer import solve_cpsat, solve_greedy
 from recovery.options import MODE_DEDICATED, MODE_LOCAL, MODE_NONE, MODE_PIGGYBACK
+from recovery.risk import BROKEN_LATENESS_H, DelayModel, merge_options, plan_options, risk_adjust
 from simulator.generator import actual_scans
 
 CPSAT_WORKERS = 2          # several scenarios run in parallel; don't oversubscribe
@@ -98,13 +103,28 @@ def next_service(view: OperatorView, dets: list[Detection], express_truck: bool 
 
 
 def piggyback(view: OperatorView, dets: list[Detection], aware: bool = True, proactive: bool = False,
-              optimizer: str = "cpsat", buffer: bool = True) -> Plan:
+              optimizer: str = "cpsat", buffer: bool = True, risk: bool = True, calibrated: bool = True,
+              broken_lateness_h: float = BROKEN_LATENESS_H) -> Plan:
+    """`risk` (the default): price options by expected penalty under the delays trucks
+    haven't shown yet (recovery/risk.py), over routes with and without the transfer
+    buffer. Off, it falls back to the fixed rule: demand `buffer` slack after unobserved
+    trucks and take the planned lateness at face value."""
     t0 = time.perf_counter()
-    if not aware:
-        net = _blind(view)
+    todo = dets if proactive else _reactive(dets)
+    if risk and aware:
+        opts = plan_options(view, todo, broken_lateness_h=broken_lateness_h)
+        if not calibrated:  # every flag priced as a certain stranding
+            tight = Network(view, transfer_buffer_h=0.0)
+            opts = risk_adjust(merge_options(generate_options(view, todo, network=tight),
+                                             generate_options(view, todo, network=Network(view))),
+                               tight, DelayModel.from_view(view), {s.shipment_id: s for s in view.shipments},
+                               broken_lateness_h=broken_lateness_h)
     else:
-        net = Network(view) if buffer else Network(view, transfer_buffer_h=0.0)
-    opts = generate_options(view, dets if proactive else _reactive(dets), network=net)
+        if not aware:
+            net = _blind(view)
+        else:
+            net = Network(view) if buffer else Network(view, transfer_buffer_h=0.0)
+        opts = generate_options(view, todo, network=net)
     cap = leg_capacity(view)
     if optimizer == "cpsat":
         plan = solve_cpsat(opts, cap, time_limit_s=CPSAT_TIME_LIMIT_S, workers=CPSAT_WORKERS)
@@ -175,11 +195,13 @@ POLICIES: list[Policy] = [
            followup="next_service"),
     Policy("next_service_express_truck", "baseline", "Next service + truck for late EXPRESS",
            lambda v, d: next_service(v, d, express_truck=True), followup="next_service"),
-    Policy("piggyback", "piggyback", "Piggyback (delay-aware, CP-SAT)", piggyback, followup="best"),
+    Policy("piggyback", "piggyback", "Piggyback (risk-aware, CP-SAT)", piggyback, followup="best"),
     Policy("piggyback_greedy", "ablation", "− optimizer (greedy)",
            lambda v, d: piggyback(v, d, optimizer="greedy"), followup="best"),
-    Policy("piggyback_no_buffer", "ablation", "− transfer buffer",
-           lambda v, d: piggyback(v, d, buffer=False), followup="best"),
+    Policy("piggyback_fixed_buffer", "ablation", "− risk pricing (fixed 1.5 h buffer)",
+           lambda v, d: piggyback(v, d, risk=False), followup="best"),
+    Policy("piggyback_uncalibrated", "ablation", "− stranding calibration",
+           lambda v, d: piggyback(v, d, calibrated=False), followup="best"),
     Policy("piggyback_blind", "ablation", "− delay awareness (published timetable)",
            lambda v, d: piggyback(v, d, aware=False), followup="best_blind"),
     Policy("piggyback_proactive", "ablation", "+ proactive (rebooks AT_RISK early)",

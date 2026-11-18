@@ -17,6 +17,7 @@ import { QueuePage } from "@/pages/QueuePage"
 const NetworkPage = lazy(() => import("@/pages/NetworkPage").then((m) => ({ default: m.NetworkPage })))
 const PlansPage = lazy(() => import("@/pages/PlansPage").then((m) => ({ default: m.PlansPage })))
 const BenchmarkPage = lazy(() => import("@/pages/BenchmarkPage").then((m) => ({ default: m.BenchmarkPage })))
+const ReplayPage = lazy(() => import("@/pages/ReplayPage").then((m) => ({ default: m.ReplayPage })))
 const LabPage = lazy(() => import("@/pages/LabPage").then((m) => ({ default: m.LabPage })))
 
 const page = (el: ReactNode) => <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>{el}</Suspense>
@@ -34,6 +35,7 @@ const router = createHashRouter([
       { path: "network", element: page(<NetworkPage />) },
       { path: "plans", element: page(<PlansPage />) },
       { path: "benchmark", element: page(<BenchmarkPage />) },
+      { path: "replay", element: page(<ReplayPage />) },
       { path: "lab", element: page(<LabPage />) },
     ],
   },

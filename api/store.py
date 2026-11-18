@@ -17,8 +17,9 @@ from db.repo import ACCEPT, DISMISS, REVOKE, option_from_json
 from detection import Detection, DetectorConfig, OperatorView, detect
 from detection.detector import KIND_AT_RISK
 from detection.view import scans_by_shipment
-from recovery import SOLVERS, Network, OptionsConfig, Plan, RecoveryOption, generate_options
+from recovery import SOLVERS, Network, OptionsConfig, Plan, RecoveryOption
 from recovery.options import MODE_NONE
+from recovery.risk import DelayModel, plan_options
 from simulator import generate_scenario
 from simulator.models import TruthRecord
 
@@ -73,6 +74,7 @@ class ScenarioStore:
         self._lock = threading.RLock()
         self._views: dict[str, OperatorView] = {}
         self._networks: dict[str, Network] = {}
+        self._risk: dict[str, tuple[Network, DelayModel]] = {}
         self._detections: dict[tuple[str, float], list[Detection]] = {}
         self._static: dict[str, Static] = {}
         self._detection_index: dict[tuple[str, float], dict[str, Detection]] = {}
@@ -149,6 +151,21 @@ class ScenarioStore:
                 self._networks[sid] = Network(self.view(sid))
             return self._networks[sid]
 
+    def risk_inputs(self, sid: str) -> tuple[Network, DelayModel]:
+        """The unbuffered network and the learned delay model, for risk pricing (cached)."""
+        with self._lock:
+            if sid not in self._risk:
+                view = self.view(sid)
+                self._risk[sid] = (Network(view, transfer_buffer_h=0.0), DelayModel.from_view(view))
+            return self._risk[sid]
+
+    def priced_options(self, sid: str, dets: list[Detection],
+                       capacity: dict[str, tuple[float, float]]) -> dict[str, list[RecoveryOption]]:
+        """Piggyback's options, priced by expected penalty (recovery/risk.py)."""
+        tight, model = self.risk_inputs(sid)
+        return plan_options(self.view(sid), dets, OptionsConfig(), capacity=capacity, tight=tight,
+                            buffered=self.network(sid), model=model)
+
     def detections(self, sid: str, grace_h: float) -> list[Detection]:
         key = (sid, round(grace_h, 2))
         with self._lock:
@@ -191,8 +208,7 @@ class ScenarioStore:
             raise NotFound(f"{shipment_id} is not flagged at grace {grace_h} h")
         if cap is None:
             cap = self.free_capacity(sid, free_for=shipment_id)
-        return generate_options(self.view(sid), [det], OptionsConfig(), network=self.network(sid),
-                                capacity=cap)[shipment_id]
+        return self.priced_options(sid, [det], cap)[shipment_id]
 
     # ------------------------------------------------------------------ plans
 
@@ -206,7 +222,7 @@ class ScenarioStore:
         if not include_at_risk:  # watch AT_RISK parcels; plan them once they really strand
             dets = [d for d in dets if d.kind != KIND_AT_RISK]
         cap = self.repo.residual_capacity(sid, view)
-        options = generate_options(view, dets, OptionsConfig(), network=self.network(sid), capacity=cap)
+        options = self.priced_options(sid, dets, cap)
         solve = SOLVERS[solver]
         plan = solve(options, cap, time_limit_s=time_limit_s) if solver == "cpsat" else solve(options, cap)
         n = self.repo.save_plan(sid, plan, grace_h, sum(map(len, options.values())))

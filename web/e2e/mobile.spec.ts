@@ -8,17 +8,19 @@ const PAGES = [
   { tab: "Network", path: "/app/#/network", ready: "Known disruptions" },
   { tab: "Plans", path: "/app/#/plans", ready: "Run a plan" },
   { tab: "Benchmark", path: "/app/#/benchmark", ready: "Does the win hold under stress?" },
+  { tab: "Replay", path: "/app/#/replay", ready: "End of shift" },
   { tab: "Lab", path: "/app/#/lab", ready: "Generate scenario" },
 ]
 
 test("the bottom tab bar reaches every page, none scrolls sideways and all pass axe", async ({ page, errors }) => {
+  test.slow() // includes the shift replay
   await page.goto("/app/")
   const tabs = page.getByRole("navigation", { name: "Main" })
   await expect(tabs).toHaveCount(1) // the desktop rail is hidden, not just covered
   for (const p of PAGES) {
     await tabs.getByRole("link", { name: p.tab }).tap()
     await expect(page).toHaveURL(new RegExp(p.path.replace("/app/", "").replace(/[#/]/g, "\\$&") + "$"))
-    await expect(page.getByText(p.ready).first()).toBeVisible()
+    await expect(page.getByText(p.ready).first()).toBeVisible({ timeout: 60_000 }) // the replay simulates a shift on first visit
     await page.waitForLoadState("networkidle")
     const [scroll, width] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth])
     expect(scroll, `${p.tab} fits the screen`).toBeLessThanOrEqual(width)

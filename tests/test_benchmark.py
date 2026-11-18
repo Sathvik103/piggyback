@@ -98,7 +98,7 @@ def test_transfer_buffer_only_follows_trips_with_unknown_delays(world):
 def test_stress_cases_record_their_variant_and_report(tmp_path):
     from benchmark.report import write_robustness
     pols = ("next_service", "next_service_express_truck", "piggyback", "piggyback_greedy",
-            "piggyback_no_buffer", "piggyback_blind", "piggyback_proactive")
+            "piggyback_fixed_buffer", "piggyback_uncalibrated", "piggyback_blind", "piggyback_proactive")
     rows = []
     for variant in ("default", "silent_cancellations"):
         rows += run_case(1, 0.9, 0.04, pols, variant)
@@ -109,7 +109,7 @@ def test_stress_cases_record_their_variant_and_report(tmp_path):
         w.writeheader()
         w.writerows(rows)
     text = write_robustness(path).read_text(encoding="utf-8")
-    assert "silent cancellations" in text and "− transfer buffer" in text
+    assert "silent cancellations" in text and "− risk pricing" in text
 
 
 def test_run_case_scores_every_policy_on_the_same_scenario():
